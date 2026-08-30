@@ -43,7 +43,7 @@ func TestHeartbeat(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got != (response{Action: "allow", Message: "ok"}) {
+	if got != (response{Action: "allow", Message: "ok", TotalSeconds: 47}) {
 		t.Fatalf("response = %#v", got)
 	}
 	if total := totalFor(t, app, "barn1"); total != 47 {

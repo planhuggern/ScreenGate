@@ -21,8 +21,9 @@ type heartbeat struct {
 }
 
 type response struct {
-	Action  string `json:"action"`
-	Message string `json:"message"`
+	Action       string `json:"action"`
+	Message      string `json:"message"`
+	TotalSeconds int    `json:"total_seconds"`
 }
 
 type application struct {
@@ -73,12 +74,14 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var h heartbeat
+	var total int
 	if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
 		log.Printf("invalid heartbeat: %v", err)
 	} else if h.DeviceID == "" || h.User == "" || h.ActiveSeconds < 0 {
 		log.Printf("invalid heartbeat: device_id and user must not be empty, and active_seconds must not be negative")
 	} else {
-		total, err := a.addToTotal(h.User, h.ActiveSeconds)
+		var err error
+		total, err = a.addToTotal(h.User, h.ActiveSeconds)
 		if err != nil {
 			log.Printf("database error: %v", err)
 		} else {
@@ -87,7 +90,7 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response{Action: "allow", Message: "ok"})
+	json.NewEncoder(w).Encode(response{Action: "allow", Message: "ok", TotalSeconds: total})
 }
 
 func main() {

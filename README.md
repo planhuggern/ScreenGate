@@ -21,7 +21,7 @@ curl -X POST http://localhost:8080/heartbeat \
 Respons:
 
 ```json
-{"action":"allow","message":"ok"}
+{"action":"allow","message":"ok","total_seconds":47}
 ```
 
 ## Tester
