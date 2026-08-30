@@ -10,6 +10,8 @@ docker compose up --build
 
 Serveren lytter på `http://localhost:8081`.
 
+Åpne `http://localhost:8081/` for en enkel oversikt over dagens aktivitet.
+
 ## Send en heartbeat
 
 ```sh

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testApplication(t *testing.T) *application {
@@ -91,5 +92,22 @@ func TestHeartbeatAddsToUserTotal(t *testing.T) {
 	}
 	if heartbeatCount != 2 {
 		t.Fatalf("heartbeat rows = %d, want 2", heartbeatCount)
+	}
+}
+
+func TestDashboardShowsTodaysActivity(t *testing.T) {
+	app := testApplication(t)
+	if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+
+	app.dashboardHandler(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "barn1") || !strings.Contains(rec.Body.String(), "1m0s") {
+		t.Fatalf("dashboard did not contain activity: %s", rec.Body.String())
 	}
 }

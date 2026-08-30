@@ -6,6 +6,8 @@ COPY main.go ./
 RUN go build -o screengate .
 
 FROM alpine:3.21
+RUN apk add --no-cache tzdata
+ENV TZ=Europe/Oslo
 COPY --from=build /app/screengate /screengate
 EXPOSE 8080
 CMD ["/screengate"]
