@@ -8,20 +8,20 @@ En minimal Go-server for å motta heartbeats fra Windows-klienter. Den summerer 
 docker compose up --build
 ```
 
-Serveren lytter på `http://localhost:8080`.
+Serveren lytter på `http://localhost:8081`.
 
 ## Send en heartbeat
 
 ```sh
-curl -X POST http://localhost:8080/heartbeat \
+curl -X POST http://localhost:8081/heartbeat \
   -H "Content-Type: application/json" \
-  -d '{"device_id":"pc-barn1","user":"barn1","active_seconds":47}'
+  -d '{"device_id":"pc-barn1","user":"barn1","active_seconds":47,"reported_at":"2026-08-30T21:30:00+02:00"}'
 ```
 
 Respons:
 
 ```json
-{"action":"allow","message":"ok","total_seconds":47}
+{"action":"allow","message":"ok","daily_total_seconds":47}
 ```
 
 ## Tester
@@ -36,7 +36,7 @@ Klienten sender én heartbeat med `active_seconds: 60` hvert 60. sekund mens den
 
 ```powershell
 go build -o screengate-client.exe ./cmd/client
-.\screengate-client.exe -server http://SERVER:8080/heartbeat
+.\screengate-client.exe -server http://SERVER:8081/heartbeat
 ```
 
 ---

@@ -20,10 +20,10 @@ func testApplication(t *testing.T) *application {
 	return newApplication(db)
 }
 
-func totalFor(t *testing.T, app *application, user string) int {
+func dailyTotalFor(t *testing.T, app *application, user, date string) int {
 	t.Helper()
 	var total int
-	if err := app.db.QueryRow("SELECT total_seconds FROM user_totals WHERE user = ?", user).Scan(&total); err != nil {
+	if err := app.db.QueryRow("SELECT total_seconds FROM daily_totals WHERE user = ? AND date = ?", user, date).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
 	return total
@@ -31,7 +31,7 @@ func totalFor(t *testing.T, app *application, user string) int {
 
 func TestHeartbeat(t *testing.T) {
 	app := testApplication(t)
-	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":47}`))
+	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":47,"reported_at":"2026-08-31T12:00:00+02:00"}`))
 	rec := httptest.NewRecorder()
 
 	app.heartbeatHandler(rec, req)
@@ -43,11 +43,11 @@ func TestHeartbeat(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got != (response{Action: "allow", Message: "ok", TotalSeconds: 47}) {
+	if got != (response{Action: "allow", Message: "ok", DailyTotalSeconds: 47}) {
 		t.Fatalf("response = %#v", got)
 	}
-	if total := totalFor(t, app, "barn1"); total != 47 {
-		t.Fatalf("total = %d, want 47", total)
+	if total := dailyTotalFor(t, app, "barn1", "2026-08-31"); total != 47 {
+		t.Fatalf("daily total = %d, want 47", total)
 	}
 }
 
@@ -78,13 +78,18 @@ func TestHeartbeatRejectsOtherMethods(t *testing.T) {
 func TestHeartbeatAddsToUserTotal(t *testing.T) {
 	app := testApplication(t)
 	for _, seconds := range []int{60, 60} {
-		req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":`+strconv.Itoa(seconds)+`}`))
+		req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":`+strconv.Itoa(seconds)+`,"reported_at":"2026-08-31T12:00:00+02:00"}`))
 		app.heartbeatHandler(httptest.NewRecorder(), req)
-		req2 := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn2","user":"barn2","active_seconds":`+strconv.Itoa(seconds)+`}`))
-		app.heartbeatHandler(httptest.NewRecorder(), req2)
 	}
 
-	if total := totalFor(t, app, "barn1"); total != 120 {
-		t.Fatalf("total = %d, want 120", total)
+	if total := dailyTotalFor(t, app, "barn1", "2026-08-31"); total != 120 {
+		t.Fatalf("daily total = %d, want 120", total)
+	}
+	var heartbeatCount int
+	if err := app.db.QueryRow("SELECT COUNT(*) FROM heartbeats WHERE user = ?", "barn1").Scan(&heartbeatCount); err != nil {
+		t.Fatal(err)
+	}
+	if heartbeatCount != 2 {
+		t.Fatalf("heartbeat rows = %d, want 2", heartbeatCount)
 	}
 }

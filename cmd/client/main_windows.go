@@ -16,13 +16,14 @@ import (
 )
 
 type heartbeat struct {
-	DeviceID      string `json:"device_id"`
-	User          string `json:"user"`
-	ActiveSeconds int    `json:"active_seconds"`
+	DeviceID      string    `json:"device_id"`
+	User          string    `json:"user"`
+	ActiveSeconds int       `json:"active_seconds"`
+	ReportedAt    time.Time `json:"reported_at"`
 }
 
 func postHeartbeat(client *http.Client, endpoint, deviceID, username string, activeSeconds int) {
-	body, err := json.Marshal(heartbeat{deviceID, username, activeSeconds})
+	body, err := json.Marshal(heartbeat{DeviceID: deviceID, User: username, ActiveSeconds: activeSeconds, ReportedAt: time.Now()})
 	if err != nil {
 		return
 	}
