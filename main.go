@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -22,7 +23,16 @@ type response struct {
 	Message string `json:"message"`
 }
 
-func heartbeatHandler(w http.ResponseWriter, r *http.Request) {
+type application struct {
+	mu     sync.Mutex
+	totals map[string]int
+}
+
+func newApplication() *application {
+	return &application{totals: make(map[string]int)}
+}
+
+func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -31,10 +41,14 @@ func heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	var h heartbeat
 	if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
 		log.Printf("invalid heartbeat: %v", err)
-	} else if h.DeviceID == "" || h.User == "" {
-		log.Printf("invalid heartbeat: device_id and user must not be empty")
+	} else if h.DeviceID == "" || h.User == "" || h.ActiveSeconds < 0 {
+		log.Printf("invalid heartbeat: device_id and user must not be empty, and active_seconds must not be negative")
 	} else {
-		log.Printf("device_id=%s user=%s active_seconds=%d", h.DeviceID, h.User, h.ActiveSeconds)
+		a.mu.Lock()
+		a.totals[h.User] += h.ActiveSeconds
+		total := a.totals[h.User]
+		a.mu.Unlock()
+		log.Printf("device_id=%s user=%s active_seconds=%d total_seconds=%d", h.DeviceID, h.User, h.ActiveSeconds, total)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -42,8 +56,9 @@ func heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	app := newApplication()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/heartbeat", heartbeatHandler)
+	mux.HandleFunc("/heartbeat", app.heartbeatHandler)
 
 	server := &http.Server{Addr: ":8080", Handler: mux}
 	go func() {

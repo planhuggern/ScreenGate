@@ -1,6 +1,6 @@
 # ScreenGate
 
-En minimal Go-server for å motta heartbeats fra Windows-klienter. Den logger aktiviteten og svarer alltid med `allow`.
+En minimal Go-server for å motta heartbeats fra Windows-klienter. Den summerer sekunder per bruker i minnet, logger aktiviteten og svarer alltid med `allow`. Summene nullstilles når serveren startes på nytt.
 
 ## Kjør med Docker
 
@@ -28,6 +28,15 @@ Respons:
 
 ```sh
 go test ./...
+```
+
+## Windows-klient
+
+Klienten sender én heartbeat med `active_seconds: 60` hvert 60. sekund mens den kjører i den innloggede Windows-økten. Bygg og kjør den på Windows:
+
+```powershell
+go build -o screengate-client.exe ./cmd/client
+.\screengate-client.exe -server http://SERVER:8080/heartbeat
 ```
 
 ---
