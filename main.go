@@ -2,14 +2,16 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 type heartbeat struct {
@@ -24,12 +26,44 @@ type response struct {
 }
 
 type application struct {
-	mu     sync.Mutex
-	totals map[string]int
+	db *sql.DB
 }
 
-func newApplication() *application {
-	return &application{totals: make(map[string]int)}
+func newApplication(db *sql.DB) *application {
+	return &application{db: db}
+}
+
+func openDatabase(path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_totals (
+		user TEXT PRIMARY KEY,
+		total_seconds INTEGER NOT NULL
+	)`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+func (a *application) addToTotal(user string, activeSeconds int) (int, error) {
+	tx, err := a.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`INSERT INTO user_totals (user, total_seconds) VALUES (?, ?)
+		ON CONFLICT(user) DO UPDATE SET total_seconds = total_seconds + excluded.total_seconds`, user, activeSeconds); err != nil {
+		return 0, err
+	}
+	var total int
+	if err := tx.QueryRow("SELECT total_seconds FROM user_totals WHERE user = ?", user).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, tx.Commit()
 }
 
 func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
@@ -44,11 +78,12 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	} else if h.DeviceID == "" || h.User == "" || h.ActiveSeconds < 0 {
 		log.Printf("invalid heartbeat: device_id and user must not be empty, and active_seconds must not be negative")
 	} else {
-		a.mu.Lock()
-		a.totals[h.User] += h.ActiveSeconds
-		total := a.totals[h.User]
-		a.mu.Unlock()
-		log.Printf("device_id=%s user=%s active_seconds=%d total_seconds=%d", h.DeviceID, h.User, h.ActiveSeconds, total)
+		total, err := a.addToTotal(h.User, h.ActiveSeconds)
+		if err != nil {
+			log.Printf("database error: %v", err)
+		} else {
+			log.Printf("device_id=%s user=%s active_seconds=%d total_seconds=%d", h.DeviceID, h.User, h.ActiveSeconds, total)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -56,7 +91,17 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	app := newApplication()
+	databasePath := os.Getenv("DATABASE_PATH")
+	if databasePath == "" {
+		databasePath = "screengate.db"
+	}
+	db, err := openDatabase(databasePath)
+	if err != nil {
+		log.Fatalf("database error: %v", err)
+	}
+	defer db.Close()
+
+	app := newApplication(db)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/heartbeat", app.heartbeatHandler)
 

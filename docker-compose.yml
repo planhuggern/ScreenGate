@@ -1,5 +1,12 @@
 services:
   screengate:
     build: .
+    environment:
+      DATABASE_PATH: /data/screengate.db
     ports:
       - "8081:8080"
+    volumes:
+      - screengate-data:/data
+
+volumes:
+  screengate-data:

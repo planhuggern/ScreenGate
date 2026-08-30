@@ -4,13 +4,33 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 )
 
+func testApplication(t *testing.T) *application {
+	t.Helper()
+	db, err := openDatabase(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return newApplication(db)
+}
+
+func totalFor(t *testing.T, app *application, user string) int {
+	t.Helper()
+	var total int
+	if err := app.db.QueryRow("SELECT total_seconds FROM user_totals WHERE user = ?", user).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	return total
+}
+
 func TestHeartbeat(t *testing.T) {
-	app := newApplication()
+	app := testApplication(t)
 	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":47}`))
 	rec := httptest.NewRecorder()
 
@@ -26,13 +46,13 @@ func TestHeartbeat(t *testing.T) {
 	if got != (response{Action: "allow", Message: "ok"}) {
 		t.Fatalf("response = %#v", got)
 	}
-	if app.totals["barn1"] != 47 {
-		t.Fatalf("total = %d, want 47", app.totals["barn1"])
+	if total := totalFor(t, app, "barn1"); total != 47 {
+		t.Fatalf("total = %d, want 47", total)
 	}
 }
 
 func TestHeartbeatEmptyRequiredFieldsStillAllows(t *testing.T) {
-	app := newApplication()
+	app := testApplication(t)
 	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"","user":"","active_seconds":0}`))
 	rec := httptest.NewRecorder()
 
@@ -44,7 +64,7 @@ func TestHeartbeatEmptyRequiredFieldsStillAllows(t *testing.T) {
 }
 
 func TestHeartbeatRejectsOtherMethods(t *testing.T) {
-	app := newApplication()
+	app := testApplication(t)
 	req := httptest.NewRequest(http.MethodGet, "/heartbeat", nil)
 	rec := httptest.NewRecorder()
 
@@ -56,7 +76,7 @@ func TestHeartbeatRejectsOtherMethods(t *testing.T) {
 }
 
 func TestHeartbeatAddsToUserTotal(t *testing.T) {
-	app := newApplication()
+	app := testApplication(t)
 	for _, seconds := range []int{60, 60} {
 		req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":`+strconv.Itoa(seconds)+`}`))
 		app.heartbeatHandler(httptest.NewRecorder(), req)
@@ -64,7 +84,7 @@ func TestHeartbeatAddsToUserTotal(t *testing.T) {
 		app.heartbeatHandler(httptest.NewRecorder(), req2)
 	}
 
-	if app.totals["barn1"] != 120 {
-		t.Fatalf("total = %d, want 120", app.totals["barn1"])
+	if total := totalFor(t, app, "barn1"); total != 120 {
+		t.Fatalf("total = %d, want 120", total)
 	}
 }

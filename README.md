@@ -1,6 +1,6 @@
 # ScreenGate
 
-En minimal Go-server for å motta heartbeats fra Windows-klienter. Den summerer sekunder per bruker i minnet, logger aktiviteten og svarer alltid med `allow`. Summene nullstilles når serveren startes på nytt.
+En minimal Go-server for å motta heartbeats fra Windows-klienter. Den summerer sekunder per bruker i SQLite, logger aktiviteten og svarer alltid med `allow`. Docker Compose lagrer databasen i en persistent volume.
 
 ## Kjør med Docker
 
