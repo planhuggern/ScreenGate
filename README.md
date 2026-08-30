@@ -1,8 +1,38 @@
 # ScreenGate
 
-ScreenGate er et enkelt hjemmeserver-basert system for å kontrollere skjermtid på barnas Windows-PC-er.
+En minimal Go-server for å motta heartbeats fra Windows-klienter. Den logger aktiviteten og svarer alltid med `allow`.
 
-Målet er å lage et system som er enklere og mer forutsigbart enn Microsoft Family Safety, og som gir sentral kontroll fra hjemmeserveren.
+## Kjør med Docker
+
+```sh
+docker compose up --build
+```
+
+Serveren lytter på `http://localhost:8080`.
+
+## Send en heartbeat
+
+```sh
+curl -X POST http://localhost:8080/heartbeat \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":"pc-barn1","user":"barn1","active_seconds":47}'
+```
+
+Respons:
+
+```json
+{"action":"allow","message":"ok"}
+```
+
+## Tester
+
+```sh
+go test ./...
+```
+
+---
+
+## Videre idéer
 
 Hovedidé
 
