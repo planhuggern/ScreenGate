@@ -60,6 +60,8 @@ func TestHeartbeatAddsToUserTotal(t *testing.T) {
 	for _, seconds := range []int{60, 60} {
 		req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":`+strconv.Itoa(seconds)+`}`))
 		app.heartbeatHandler(httptest.NewRecorder(), req)
+		req2 := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn2","user":"barn2","active_seconds":`+strconv.Itoa(seconds)+`}`))
+		app.heartbeatHandler(httptest.NewRecorder(), req2)
 	}
 
 	if app.totals["barn1"] != 120 {
