@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -28,28 +30,31 @@ type response struct {
 
 var lockWorkStation = syscall.NewLazyDLL("user32.dll").NewProc("LockWorkStation")
 
-func postHeartbeat(client *http.Client, endpoint, deviceID, username string, activeSeconds int) string {
+func postHeartbeat(client *http.Client, endpoint, deviceID, username string, activeSeconds int) (string, error) {
 	body, err := json.Marshal(heartbeat{DeviceID: deviceID, User: username, ActiveSeconds: activeSeconds, ReportedAt: time.Now()})
 	if err != nil {
-		return "allow"
+		return "", err
 	}
 
 	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "allow"
+		return "", err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	httpResponse, err := client.Do(request)
 	if err != nil {
-		return "allow"
+		return "", err
 	}
 	defer httpResponse.Body.Close()
 
 	var result response
-	if err := json.NewDecoder(httpResponse.Body).Decode(&result); err != nil || result.Action != "lock" {
-		return "allow"
+	if err := json.NewDecoder(httpResponse.Body).Decode(&result); err != nil {
+		return "", err
 	}
-	return "lock"
+	if result.Action != "allow" && result.Action != "lock" {
+		return "", errors.New("unknown server action")
+	}
+	return result.Action, nil
 }
 
 func main() {
@@ -70,12 +75,25 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	lastStatus := ""
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-report.C:
-			if postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 60) == "lock" {
+			action, err := postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 60)
+			if err != nil {
+				if lastStatus != "unreachable" {
+					log.Printf("server unavailable: %v", err)
+					lastStatus = "unreachable"
+				}
+				continue
+			}
+			if action != lastStatus {
+				log.Printf("server action=%s", action)
+				lastStatus = action
+			}
+			if action == "lock" {
 				lockWorkStation.Call()
 			}
 		}
