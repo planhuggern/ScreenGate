@@ -18,6 +18,14 @@ Bruk knappen **Last ned installasjon for Windows** på forsiden for å hente `in
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -User "DOMENE\bruker"
 ```
 
+### Avinstaller
+
+Kjør i PowerShell som administrator for å fjerne oppstartsoppgaven og klientfilene:
+
+```powershell
+Unregister-ScheduledTask -TaskName "ScreenGate Client" -Confirm:$false; Remove-Item "C:\Program Files\ScreenGate" -Recurse -Force
+```
+
 Forsiden har knappene **Lås** og **Tillat** for hver PC. Låsingen skjer ved PC-ens neste heartbeat, og handlingen går automatisk tilbake til `allow` ved ny dato.
 
 ## Send en heartbeat
