@@ -12,6 +12,8 @@ Serveren lytter på `http://localhost:8081`.
 
 Åpne `http://localhost:8081/` for en enkel oversikt over dagens aktivitet.
 
+Forsiden har knappene **Lås** og **Tillat** for hver PC. Låsingen skjer ved PC-ens neste heartbeat, og handlingen går automatisk tilbake til `allow` ved ny dato.
+
 ## Send en heartbeat
 
 ```sh

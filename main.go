@@ -33,9 +33,11 @@ type application struct {
 }
 
 type activity struct {
+	DeviceID       string
 	User           string
 	TotalSeconds   int
 	LastReportedAt string
+	Action         string
 }
 
 type dashboard struct {
@@ -60,8 +62,11 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
   <h2>Aktivitet {{.Date}}</h2>
   {{if .Activities}}
   <table>
-    <tr><th>Bruker</th><th>Brukt i dag</th><th>Sist rapportert</th></tr>
-    {{range .Activities}}<tr><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>{{.LastReportedAt}}</td></tr>{{end}}
+    <tr><th>PC</th><th>Bruker</th><th>Brukt i dag</th><th>Sist rapportert</th><th>Handling</th></tr>
+    {{range .Activities}}<tr><td>{{.DeviceID}}</td><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>{{.LastReportedAt}}</td><td>
+      {{.Action}}
+      <form method="post" action="/device-action"><input type="hidden" name="device_id" value="{{.DeviceID}}"><button name="action" value="lock">Lås</button><button name="action" value="allow">Tillat</button></form>
+    </td></tr>{{end}}
   </table>
   {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
 </body>
@@ -96,7 +101,34 @@ func openDatabase(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS device_actions (
+		device_id TEXT PRIMARY KEY,
+		action TEXT NOT NULL,
+		action_date TEXT NOT NULL
+	)`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return db, nil
+}
+
+func today() string {
+	return time.Now().Format("2006-01-02")
+}
+
+func (a *application) deviceAction(deviceID string) (string, error) {
+	var action string
+	err := a.db.QueryRow("SELECT action FROM device_actions WHERE device_id = ? AND action_date = ?", deviceID, today()).Scan(&action)
+	if err == sql.ErrNoRows {
+		return "allow", nil
+	}
+	return action, err
+}
+
+func (a *application) setDeviceAction(deviceID, action string) error {
+	_, err := a.db.Exec(`INSERT INTO device_actions (device_id, action, action_date) VALUES (?, ?, ?)
+		ON CONFLICT(device_id) DO UPDATE SET action = excluded.action, action_date = excluded.action_date`, deviceID, action, today())
+	return err
 }
 
 func (a *application) addHeartbeat(h heartbeat) (int, error) {
@@ -131,13 +163,14 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	date := time.Now().Format("2006-01-02")
-	rows, err := a.db.Query(`SELECT d.user, d.total_seconds, MAX(h.reported_at)
-		FROM daily_totals d
-		JOIN heartbeats h ON h.user = d.user AND h.date = d.date
+	date := today()
+	rows, err := a.db.Query(`SELECT h.device_id, h.user, d.total_seconds, MAX(h.reported_at), COALESCE(a.action, 'allow')
+		FROM heartbeats h
+		JOIN daily_totals d ON d.user = h.user AND d.date = h.date
+		LEFT JOIN device_actions a ON a.device_id = h.device_id AND a.action_date = ?
 		WHERE d.date = ?
-		GROUP BY d.user, d.total_seconds
-		ORDER BY d.user`, date)
+		GROUP BY h.device_id, h.user, d.total_seconds, a.action
+		ORDER BY h.device_id`, date, date)
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
@@ -147,7 +180,7 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	var activities []activity
 	for rows.Next() {
 		var item activity
-		if err := rows.Scan(&item.User, &item.TotalSeconds, &item.LastReportedAt); err != nil {
+		if err := rows.Scan(&item.DeviceID, &item.User, &item.TotalSeconds, &item.LastReportedAt, &item.Action); err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
@@ -164,6 +197,28 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *application) deviceActionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	deviceID := r.FormValue("device_id")
+	action := r.FormValue("action")
+	if deviceID == "" || (action != "allow" && action != "lock") {
+		http.Error(w, "invalid action", http.StatusBadRequest)
+		return
+	}
+	if err := a.setDeviceAction(deviceID, action); err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -172,6 +227,7 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 
 	var h heartbeat
 	var dailyTotal int
+	action := "allow"
 	if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
 		log.Printf("invalid heartbeat: %v", err)
 	} else if h.DeviceID == "" || h.User == "" || h.ActiveSeconds < 0 || h.ReportedAt.IsZero() {
@@ -182,12 +238,17 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("database error: %v", err)
 		} else {
+			action, err = a.deviceAction(h.DeviceID)
+			if err != nil {
+				log.Printf("database error: %v", err)
+				action = "allow"
+			}
 			log.Printf("reported_at=%s device_id=%s user=%s active_seconds=%d daily_total_seconds=%d", h.ReportedAt.Format(time.RFC3339), h.DeviceID, h.User, h.ActiveSeconds, dailyTotal)
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response{Action: "allow", Message: "ok", DailyTotalSeconds: dailyTotal})
+	json.NewEncoder(w).Encode(response{Action: action, Message: "ok", DailyTotalSeconds: dailyTotal})
 }
 
 func main() {
@@ -203,6 +264,7 @@ func main() {
 
 	app := newApplication(db)
 	mux := http.NewServeMux()
+	mux.HandleFunc("/device-action", app.deviceActionHandler)
 	mux.HandleFunc("/", app.dashboardHandler)
 	mux.HandleFunc("/heartbeat", app.heartbeatHandler)
 

@@ -111,3 +111,42 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 		t.Fatalf("dashboard did not contain activity: %s", rec.Body.String())
 	}
 }
+
+func TestHeartbeatReturnsDeviceAction(t *testing.T) {
+	app := testApplication(t)
+	if err := app.setDeviceAction("pc-barn1", "lock"); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":60,"reported_at":"2026-08-31T12:00:00+02:00"}`))
+	rec := httptest.NewRecorder()
+
+	app.heartbeatHandler(rec, req)
+
+	var got response
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Action != "lock" {
+		t.Fatalf("action = %q, want lock", got.Action)
+	}
+}
+
+func TestDeviceActionHandler(t *testing.T) {
+	app := testApplication(t)
+	req := httptest.NewRequest(http.MethodPost, "/device-action", strings.NewReader("device_id=pc-barn1&action=lock"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	app.deviceActionHandler(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	action, err := app.deviceAction("pc-barn1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action != "lock" {
+		t.Fatalf("action = %q, want lock", action)
+	}
+}

@@ -22,21 +22,34 @@ type heartbeat struct {
 	ReportedAt    time.Time `json:"reported_at"`
 }
 
-func postHeartbeat(client *http.Client, endpoint, deviceID, username string, activeSeconds int) {
+type response struct {
+	Action string `json:"action"`
+}
+
+var lockWorkStation = syscall.NewLazyDLL("user32.dll").NewProc("LockWorkStation")
+
+func postHeartbeat(client *http.Client, endpoint, deviceID, username string, activeSeconds int) string {
 	body, err := json.Marshal(heartbeat{DeviceID: deviceID, User: username, ActiveSeconds: activeSeconds, ReportedAt: time.Now()})
 	if err != nil {
-		return
+		return "allow"
 	}
 
 	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return
+		return "allow"
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := client.Do(request)
-	if err == nil {
-		response.Body.Close()
+	httpResponse, err := client.Do(request)
+	if err != nil {
+		return "allow"
 	}
+	defer httpResponse.Body.Close()
+
+	var result response
+	if err := json.NewDecoder(httpResponse.Body).Decode(&result); err != nil || result.Action != "lock" {
+		return "allow"
+	}
+	return "lock"
 }
 
 func main() {
@@ -62,7 +75,9 @@ func main() {
 		case <-ctx.Done():
 			return
 		case <-report.C:
-			postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 60)
+			if postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 60) == "lock" {
+				lockWorkStation.Call()
+			}
 		}
 	}
 }
