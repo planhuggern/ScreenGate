@@ -70,7 +70,7 @@ func main() {
 		return
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
-	report := time.NewTicker(60 * time.Second)
+	report := time.NewTicker(30 * time.Second)
 	defer report.Stop()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -81,7 +81,7 @@ func main() {
 		case <-ctx.Done():
 			return
 		case <-report.C:
-			action, err := postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 60)
+			action, err := postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 30)
 			if err != nil {
 				if lastStatus != "unreachable" {
 					log.Printf("server unavailable: %v", err)

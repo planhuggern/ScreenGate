@@ -12,7 +12,7 @@ Serveren lytter på `http://localhost:8081`.
 
 Åpne `http://localhost:8081/` for en enkel oversikt over dagens aktivitet.
 
-Bruk knappen **Last ned Windows-klient** på forsiden for å hente `screengate-client.exe` til en Windows 11 x64-maskin.
+Bruk knappen **Last ned installasjon for Windows** på forsiden for å hente `install.ps1`. Kjør skriptet som administrator på Windows 11 x64-maskinen; det laster ned klienten og oppretter en oppstartsoppgave for den innloggede brukeren.
 
 Forsiden har knappene **Lås** og **Tillat** for hver PC. Låsingen skjer ved PC-ens neste heartbeat, og handlingen går automatisk tilbake til `allow` ved ny dato.
 
@@ -38,7 +38,7 @@ go test ./...
 
 ## Windows-klient
 
-Klienten sender én heartbeat med `active_seconds: 60` hvert 60. sekund mens den kjører i den innloggede Windows-økten. Bygg og kjør den på Windows:
+Klienten sender én heartbeat med `active_seconds: 30` hvert 30. sekund mens den kjører i den innloggede Windows-økten. Bygg og kjør den på Windows:
 
 ```powershell
 go build -o screengate-client.exe ./cmd/client

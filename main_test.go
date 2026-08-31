@@ -160,3 +160,13 @@ func TestDownloadClientRejectsOtherMethods(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
 	}
 }
+
+func TestDownloadInstallerRejectsOtherMethods(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	downloadInstallerHandler(rec, httptest.NewRequest(http.MethodPost, "/downloads/install.ps1", nil))
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}

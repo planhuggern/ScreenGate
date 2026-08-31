@@ -12,5 +12,6 @@ RUN apk add --no-cache tzdata
 ENV TZ=Europe/Oslo
 COPY --from=build /app/screengate /screengate
 COPY --from=build /app/screengate-client.exe /client/screengate-client.exe
+COPY --from=build /app/cmd/client/install.ps1 /client/install.ps1
 EXPOSE 8080
 CMD ["/screengate"]

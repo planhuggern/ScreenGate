@@ -59,7 +59,7 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
 </head>
 <body>
   <h1>ScreenGate</h1>
-  <p><a href="/downloads/screengate-client.exe"><button>Last ned Windows-klient</button></a></p>
+  <p><a href="/downloads/install.ps1"><button>Last ned installasjon for Windows</button></a></p>
   <h2>Aktivitet {{.Date}}</h2>
   {{if .Activities}}
   <table>
@@ -229,6 +229,16 @@ func downloadClientHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "/client/screengate-client.exe")
 }
 
+func downloadInstallerHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=install.ps1")
+	http.ServeFile(w, r, "/client/install.ps1")
+}
+
 func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -274,6 +284,7 @@ func main() {
 
 	app := newApplication(db)
 	mux := http.NewServeMux()
+	mux.HandleFunc("/downloads/install.ps1", downloadInstallerHandler)
 	mux.HandleFunc("/downloads/screengate-client.exe", downloadClientHandler)
 	mux.HandleFunc("/device-action", app.deviceActionHandler)
 	mux.HandleFunc("/", app.dashboardHandler)
