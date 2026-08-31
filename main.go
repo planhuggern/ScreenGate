@@ -29,6 +29,15 @@ type response struct {
 	DailyTotalSeconds int    `json:"daily_total_seconds"`
 }
 
+type focusEvent struct {
+	Type          string    `json:"type"`
+	DeviceID      string    `json:"device_id"`
+	User          string    `json:"user"`
+	PreviousApp   string    `json:"previous_app"`
+	ActiveSeconds int       `json:"active_seconds"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
 type application struct {
 	db *sql.DB
 }
@@ -258,6 +267,26 @@ func downloadInstallerHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "/client/install.ps1")
 }
 
+func eventHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var event focusEvent
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if event.Type != "focus_changed" || event.DeviceID == "" || event.User == "" || event.PreviousApp == "" || event.ActiveSeconds < 0 || event.Timestamp.IsZero() {
+		http.Error(w, "invalid event", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("timestamp=%s device=%s user=%s app=%s active_seconds=%d", event.Timestamp.Format(time.RFC3339), event.DeviceID, event.User, event.PreviousApp, event.ActiveSeconds)
+	w.WriteHeader(http.StatusOK)
+}
+
 func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -307,6 +336,7 @@ func main() {
 	mux.HandleFunc("/downloads/install.ps1", downloadInstallerHandler)
 	mux.HandleFunc("/downloads/screengate-client.exe", downloadClientHandler)
 	mux.HandleFunc("/user-quota", app.userQuotaHandler)
+	mux.HandleFunc("/event", eventHandler)
 	mux.HandleFunc("/", app.dashboardHandler)
 	mux.HandleFunc("/heartbeat", app.heartbeatHandler)
 

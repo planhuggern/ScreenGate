@@ -76,6 +76,39 @@ func TestHeartbeatRejectsOtherMethods(t *testing.T) {
 	}
 }
 
+func TestEventAcceptsValidEvent(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/event", strings.NewReader(`{"type":"focus_changed","device_id":"pc-barn1","user":"barn1","previous_app":"roblox.exe","active_seconds":332,"timestamp":"2026-08-31T22:15:03+02:00"}`))
+	rec := httptest.NewRecorder()
+
+	eventHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestEventRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "invalid JSON", body: `{`},
+		{name: "empty device", body: `{"type":"focus_changed","device_id":"","user":"barn1","previous_app":"roblox.exe","active_seconds":1,"timestamp":"2026-08-31T22:15:03+02:00"}`},
+		{name: "empty user", body: `{"type":"focus_changed","device_id":"pc-barn1","user":"","previous_app":"roblox.exe","active_seconds":1,"timestamp":"2026-08-31T22:15:03+02:00"}`},
+		{name: "negative seconds", body: `{"type":"focus_changed","device_id":"pc-barn1","user":"barn1","previous_app":"roblox.exe","active_seconds":-1,"timestamp":"2026-08-31T22:15:03+02:00"}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			eventHandler(rec, httptest.NewRequest(http.MethodPost, "/event", strings.NewReader(test.body)))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
 func TestHeartbeatAddsToUserTotal(t *testing.T) {
 	app := testApplication(t)
 	for _, seconds := range []int{60, 60} {

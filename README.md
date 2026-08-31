@@ -59,6 +59,8 @@ go build -ldflags "-H=windowsgui" -o screengate-client.exe ./cmd/client
 .\screengate-client.exe -server http://SERVER:8081/heartbeat
 ```
 
+Klienten registrerer også skifter mellom programmer i forgrunnen og sender dem til `POST /event`. Eventene logges på serveren, men lagres ikke i databasen ennå.
+
 ---
 
 ## Videre idéer

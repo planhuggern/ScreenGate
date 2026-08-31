@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -27,6 +28,15 @@ type heartbeat struct {
 
 type response struct {
 	Action string `json:"action"`
+}
+
+type focusEvent struct {
+	Type          string    `json:"type"`
+	DeviceID      string    `json:"device_id"`
+	User          string    `json:"user"`
+	PreviousApp   string    `json:"previous_app"`
+	ActiveSeconds int       `json:"active_seconds"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 var lockWorkStation = syscall.NewLazyDLL("user32.dll").NewProc("LockWorkStation")
@@ -74,6 +84,48 @@ func postHeartbeat(client *http.Client, endpoint, deviceID, username string, act
 	return result.Action, nil
 }
 
+func postEvent(client *http.Client, endpoint string, event focusEvent) error {
+	body, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return errors.New("event request failed")
+	}
+	return nil
+}
+
+func flushEvents(client *http.Client, endpoint string, events []focusEvent) []focusEvent {
+	for len(events) > 0 {
+		if err := postEvent(client, endpoint, events[0]); err != nil {
+			return events
+		}
+		events = events[1:]
+	}
+	return events
+}
+
+func newFocusEvent(deviceID, username, app string, activeSeconds int, timestamp time.Time) focusEvent {
+	return focusEvent{
+		Type:          "focus_changed",
+		DeviceID:      deviceID,
+		User:          username,
+		PreviousApp:   app,
+		ActiveSeconds: activeSeconds,
+		Timestamp:     timestamp,
+	}
+}
+
 func main() {
 	configureLogging()
 	endpoint := flag.String("server", "http://10.0.0.20:8081/heartbeat", "ScreenGate heartbeat URL")
@@ -89,15 +141,34 @@ func main() {
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	report := time.NewTicker(30 * time.Second)
+	focusPoll := time.NewTicker(time.Second)
 	defer report.Stop()
+	defer focusPoll.Stop()
+	eventEndpoint := strings.TrimSuffix(*endpoint, "/heartbeat") + "/event"
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	lastStatus := ""
+	tracker := focusTracker{}
+	pendingEvents := []focusEvent{}
 	for {
 		select {
 		case <-ctx.Done():
+			if app, activeSeconds, ok := tracker.finish(time.Now()); ok {
+				pendingEvents = append(pendingEvents, newFocusEvent(deviceID, currentUser.Username, app, activeSeconds, time.Now()))
+			}
+			flushEvents(client, eventEndpoint, pendingEvents)
 			return
+		case <-focusPoll.C:
+			app, err := foregroundApp()
+			if err != nil {
+				continue
+			}
+			now := time.Now()
+			if previousApp, activeSeconds, changed := tracker.observe(app, now); changed {
+				pendingEvents = append(pendingEvents, newFocusEvent(deviceID, currentUser.Username, previousApp, activeSeconds, now))
+				pendingEvents = flushEvents(client, eventEndpoint, pendingEvents)
+			}
 		case <-report.C:
 			action, err := postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 30)
 			if err != nil {
@@ -107,6 +178,7 @@ func main() {
 				}
 				continue
 			}
+			pendingEvents = flushEvents(client, eventEndpoint, pendingEvents)
 			if action != lastStatus {
 				log.Printf("server action=%s", action)
 				lastStatus = action
