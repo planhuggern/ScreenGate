@@ -14,6 +14,8 @@ Serveren lytter på `http://localhost:8081`.
 
 Bruk knappen **Last ned installasjon for Windows** på forsiden for å hente `install.ps1`. Kjør skriptet som administrator på Windows 11 x64-maskinen; det viser en liste over kjente brukerprofiler. Velg brukeren som skal kjøre klienten.
 
+Klienten kjører uten konsollvindu. Statusendringer logges til `C:\ProgramData\ScreenGate\client.log`; loggfilen roteres ved 1 MB.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
@@ -53,7 +55,7 @@ go test ./...
 Klienten sender én heartbeat med `active_seconds: 30` hvert 30. sekund mens den kjører i den innloggede Windows-økten. Bygg og kjør den på Windows:
 
 ```powershell
-go build -o screengate-client.exe ./cmd/client
+go build -ldflags "-H=windowsgui" -o screengate-client.exe ./cmd/client
 .\screengate-client.exe -server http://SERVER:8081/heartbeat
 ```
 

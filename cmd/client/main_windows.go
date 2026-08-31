@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -29,6 +30,22 @@ type response struct {
 }
 
 var lockWorkStation = syscall.NewLazyDLL("user32.dll").NewProc("LockWorkStation")
+
+func configureLogging() {
+	logDir := filepath.Join(os.Getenv("ProgramData"), "ScreenGate")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return
+	}
+	logPath := filepath.Join(logDir, "client.log")
+	if info, err := os.Stat(logPath); err == nil && info.Size() >= 1<<20 {
+		os.Remove(logPath + ".1")
+		os.Rename(logPath, logPath+".1")
+	}
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err == nil {
+		log.SetOutput(file)
+	}
+}
 
 func postHeartbeat(client *http.Client, endpoint, deviceID, username string, activeSeconds int) (string, error) {
 	body, err := json.Marshal(heartbeat{DeviceID: deviceID, User: username, ActiveSeconds: activeSeconds, ReportedAt: time.Now()})
@@ -58,6 +75,7 @@ func postHeartbeat(client *http.Client, endpoint, deviceID, username string, act
 }
 
 func main() {
+	configureLogging()
 	endpoint := flag.String("server", "http://10.0.0.20:8081/heartbeat", "ScreenGate heartbeat URL")
 	flag.Parse()
 

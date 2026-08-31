@@ -5,7 +5,7 @@ RUN go mod download
 COPY main.go ./
 COPY cmd/client ./cmd/client
 RUN go build -o screengate .
-RUN GOOS=windows GOARCH=amd64 go build -o screengate-client.exe ./cmd/client
+RUN GOOS=windows GOARCH=amd64 go build -ldflags="-H=windowsgui" -o screengate-client.exe ./cmd/client
 
 FROM alpine:3.21
 RUN apk add --no-cache tzdata
