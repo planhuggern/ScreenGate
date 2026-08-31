@@ -47,7 +47,7 @@ func TestHeartbeat(t *testing.T) {
 	if got != (response{Action: "allow", Message: "ok", DailyTotalSeconds: 47}) {
 		t.Fatalf("response = %#v", got)
 	}
-	if total := dailyTotalFor(t, app, "barn1", "2026-08-31"); total != 47 {
+	if total := dailyTotalFor(t, app, "barn1", today()); total != 47 {
 		t.Fatalf("daily total = %d, want 47", total)
 	}
 }
@@ -83,7 +83,7 @@ func TestHeartbeatAddsToUserTotal(t *testing.T) {
 		app.heartbeatHandler(httptest.NewRecorder(), req)
 	}
 
-	if total := dailyTotalFor(t, app, "barn1", "2026-08-31"); total != 120 {
+	if total := dailyTotalFor(t, app, "barn1", today()); total != 120 {
 		t.Fatalf("daily total = %d, want 120", total)
 	}
 	var heartbeatCount int
@@ -112,9 +112,9 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 	}
 }
 
-func TestHeartbeatReturnsDeviceAction(t *testing.T) {
+func TestHeartbeatLocksWhenDailyQuotaIsReached(t *testing.T) {
 	app := testApplication(t)
-	if err := app.setDeviceAction("pc-barn1", "lock"); err != nil {
+	if err := app.setUserQuota("barn1", 1); err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":60,"reported_at":"2026-08-31T12:00:00+02:00"}`))
@@ -131,23 +131,23 @@ func TestHeartbeatReturnsDeviceAction(t *testing.T) {
 	}
 }
 
-func TestDeviceActionHandler(t *testing.T) {
+func TestUserQuotaHandler(t *testing.T) {
 	app := testApplication(t)
-	req := httptest.NewRequest(http.MethodPost, "/device-action", strings.NewReader("device_id=pc-barn1&action=lock"))
+	req := httptest.NewRequest(http.MethodPost, "/user-quota", strings.NewReader("user=barn1&hours=1&minutes=30"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 
-	app.deviceActionHandler(rec, req)
+	app.userQuotaHandler(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	action, err := app.deviceAction("pc-barn1")
+	quota, err := app.userQuota("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if action != "lock" {
-		t.Fatalf("action = %q, want lock", action)
+	if quota != 5400 {
+		t.Fatalf("quota = %d, want 5400", quota)
 	}
 }
 

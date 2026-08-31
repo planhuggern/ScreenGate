@@ -28,7 +28,7 @@ Kjør i PowerShell som administrator for å fjerne oppstartsoppgaven og klientfi
 Unregister-ScheduledTask -TaskName "ScreenGate Client" -Confirm:$false; Remove-Item "C:\Program Files\ScreenGate" -Recurse -Force
 ```
 
-Forsiden har knappene **Lås** og **Tillat** for hver PC. Låsingen skjer ved PC-ens neste heartbeat, og handlingen går automatisk tilbake til `allow` ved ny dato.
+Forsiden viser bruk per bruker og lar deg sette en daglig kvote i timer og minutter. `0 t 0 min` betyr ubegrenset. Når dagens bruk når kvoten, svarer serveren med `lock` ved neste heartbeat.
 
 ## Send en heartbeat
 

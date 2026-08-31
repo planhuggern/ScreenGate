@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -33,11 +34,10 @@ type application struct {
 }
 
 type activity struct {
-	DeviceID       string
 	User           string
 	TotalSeconds   int
 	LastReportedAt string
-	Action         string
+	QuotaSeconds   int
 }
 
 type dashboard struct {
@@ -49,13 +49,25 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
 	"duration": func(seconds int) string {
 		return (time.Duration(seconds) * time.Second).String()
 	},
+	"hours": func(seconds int) int {
+		return seconds / 3600
+	},
+	"minutes": func(seconds int) int {
+		return seconds % 3600 / 60
+	},
+	"quota": func(seconds int) string {
+		if seconds == 0 {
+			return "Ubegrenset"
+		}
+		return (time.Duration(seconds) * time.Second).String()
+	},
 }).Parse(`<!doctype html>
 <html lang="no">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ScreenGate</title>
-  <style>body{font-family:system-ui,sans-serif;max-width:820px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}.switch{position:relative;display:inline-block;width:52px;height:28px}.switch input{opacity:0;width:0;height:0}.slider{position:absolute;inset:0;background:#22a06b;border-radius:28px;cursor:pointer;transition:.2s}.slider:before{content:"";position:absolute;height:22px;width:22px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.2s}.switch input:checked+.slider{background:#d14343}.switch input:checked+.slider:before{transform:translateX(24px)}.action-label{font-size:.85rem;margin-left:.35rem}</style>
+  <style>body{font-family:system-ui,sans-serif;max-width:820px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}input{width:4rem}</style>
 </head>
 <body>
   <h1>ScreenGate</h1>
@@ -69,10 +81,10 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
   <h2>Aktivitet {{.Date}}</h2>
   {{if .Activities}}
   <table>
-    <tr><th>PC</th><th>Bruker</th><th>Brukt i dag</th><th>Sist rapportert</th><th>Handling</th></tr>
-    {{range .Activities}}<tr><td>{{.DeviceID}}</td><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>{{.LastReportedAt}}</td><td>
-      <form method="post" action="/device-action"><input type="hidden" name="device_id" value="{{.DeviceID}}"><input type="hidden" name="action" value="{{.Action}}"><label class="switch"><input type="checkbox" {{if eq .Action "lock"}}checked{{end}} onchange="this.form.querySelector('input[name=action]').value=this.checked?'lock':'allow';this.form.submit()"><span class="slider"></span></label><span class="action-label">{{if eq .Action "lock"}}Lås{{else}}Tillat{{end}}</span><noscript><button type="submit">Lagre</button></noscript></form>
-    </td></tr>{{end}}
+    <tr><th>Bruker</th><th>Brukt i dag</th><th>Maks per dag</th><th>Sist rapportert</th></tr>
+    {{range .Activities}}<tr><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>
+      <form method="post" action="/user-quota"><input type="hidden" name="user" value="{{.User}}"><input type="number" name="hours" min="0" value="{{hours .QuotaSeconds}}"> t <input type="number" name="minutes" min="0" max="59" value="{{minutes .QuotaSeconds}}"> min <button>Lagre</button><br><small>{{quota .QuotaSeconds}}</small></form>
+    </td><td>{{.LastReportedAt}}</td></tr>{{end}}
   </table>
   {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
 </body>
@@ -107,10 +119,9 @@ func openDatabase(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS device_actions (
-		device_id TEXT PRIMARY KEY,
-		action TEXT NOT NULL,
-		action_date TEXT NOT NULL
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_quotas (
+		user TEXT PRIMARY KEY,
+		daily_quota_seconds INTEGER NOT NULL
 	)`); err != nil {
 		db.Close()
 		return nil, err
@@ -122,18 +133,18 @@ func today() string {
 	return time.Now().Format("2006-01-02")
 }
 
-func (a *application) deviceAction(deviceID string) (string, error) {
-	var action string
-	err := a.db.QueryRow("SELECT action FROM device_actions WHERE device_id = ? AND action_date = ?", deviceID, today()).Scan(&action)
+func (a *application) userQuota(user string) (int, error) {
+	var quota int
+	err := a.db.QueryRow("SELECT daily_quota_seconds FROM user_quotas WHERE user = ?", user).Scan(&quota)
 	if err == sql.ErrNoRows {
-		return "allow", nil
+		return 0, nil
 	}
-	return action, err
+	return quota, err
 }
 
-func (a *application) setDeviceAction(deviceID, action string) error {
-	_, err := a.db.Exec(`INSERT INTO device_actions (device_id, action, action_date) VALUES (?, ?, ?)
-		ON CONFLICT(device_id) DO UPDATE SET action = excluded.action, action_date = excluded.action_date`, deviceID, action, today())
+func (a *application) setUserQuota(user string, quota int) error {
+	_, err := a.db.Exec(`INSERT INTO user_quotas (user, daily_quota_seconds) VALUES (?, ?)
+		ON CONFLICT(user) DO UPDATE SET daily_quota_seconds = excluded.daily_quota_seconds`, user, quota)
 	return err
 }
 
@@ -144,7 +155,7 @@ func (a *application) addHeartbeat(h heartbeat) (int, error) {
 	}
 	defer tx.Rollback()
 
-	date := h.ReportedAt.Format("2006-01-02")
+	date := today()
 	if _, err := tx.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
 		VALUES (?, ?, ?, ?, ?)`, h.ReportedAt.Format(time.RFC3339Nano), date, h.DeviceID, h.User, h.ActiveSeconds); err != nil {
 		return 0, err
@@ -170,13 +181,13 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	date := today()
-	rows, err := a.db.Query(`SELECT h.device_id, h.user, d.total_seconds, MAX(h.reported_at), COALESCE(a.action, 'allow')
+	rows, err := a.db.Query(`SELECT d.user, d.total_seconds, MAX(h.reported_at), COALESCE(q.daily_quota_seconds, 0)
 		FROM heartbeats h
 		JOIN daily_totals d ON d.user = h.user AND d.date = h.date
-		LEFT JOIN device_actions a ON a.device_id = h.device_id AND a.action_date = ?
+		LEFT JOIN user_quotas q ON q.user = d.user
 		WHERE d.date = ?
-		GROUP BY h.device_id, h.user, d.total_seconds, a.action
-		ORDER BY h.device_id`, date, date)
+		GROUP BY d.user, d.total_seconds, q.daily_quota_seconds
+		ORDER BY d.user`, date)
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
@@ -186,7 +197,7 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	var activities []activity
 	for rows.Next() {
 		var item activity
-		if err := rows.Scan(&item.DeviceID, &item.User, &item.TotalSeconds, &item.LastReportedAt, &item.Action); err != nil {
+		if err := rows.Scan(&item.User, &item.TotalSeconds, &item.LastReportedAt, &item.QuotaSeconds); err != nil {
 			http.Error(w, "database error", http.StatusInternalServerError)
 			return
 		}
@@ -203,7 +214,7 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *application) deviceActionHandler(w http.ResponseWriter, r *http.Request) {
+func (a *application) userQuotaHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -212,13 +223,15 @@ func (a *application) deviceActionHandler(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	deviceID := r.FormValue("device_id")
-	action := r.FormValue("action")
-	if deviceID == "" || (action != "allow" && action != "lock") {
-		http.Error(w, "invalid action", http.StatusBadRequest)
+	user := r.FormValue("user")
+	hours, hoursErr := strconv.Atoi(r.FormValue("hours"))
+	minutes, minutesErr := strconv.Atoi(r.FormValue("minutes"))
+	if user == "" || hoursErr != nil || minutesErr != nil || hours < 0 || minutes < 0 || minutes > 59 {
+		http.Error(w, "invalid quota", http.StatusBadRequest)
 		return
 	}
-	if err := a.setDeviceAction(deviceID, action); err != nil {
+	quota := hours*60*60 + minutes*60
+	if err := a.setUserQuota(user, quota); err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
@@ -264,10 +277,11 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("database error: %v", err)
 		} else {
-			action, err = a.deviceAction(h.DeviceID)
-			if err != nil {
-				log.Printf("database error: %v", err)
-				action = "allow"
+			quota, quotaErr := a.userQuota(h.User)
+			if quotaErr != nil {
+				log.Printf("database error: %v", quotaErr)
+			} else if quota > 0 && dailyTotal >= quota {
+				action = "lock"
 			}
 			log.Printf("reported_at=%s device_id=%s user=%s active_seconds=%d daily_total_seconds=%d", h.ReportedAt.Format(time.RFC3339), h.DeviceID, h.User, h.ActiveSeconds, dailyTotal)
 		}
@@ -292,7 +306,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/downloads/install.ps1", downloadInstallerHandler)
 	mux.HandleFunc("/downloads/screengate-client.exe", downloadClientHandler)
-	mux.HandleFunc("/device-action", app.deviceActionHandler)
+	mux.HandleFunc("/user-quota", app.userQuotaHandler)
 	mux.HandleFunc("/", app.dashboardHandler)
 	mux.HandleFunc("/heartbeat", app.heartbeatHandler)
 
