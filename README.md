@@ -12,7 +12,11 @@ Serveren lytter på `http://localhost:8081`.
 
 Åpne `http://localhost:8081/` for en enkel oversikt over dagens aktivitet.
 
-Bruk knappen **Last ned installasjon for Windows** på forsiden for å hente `install.ps1`. Kjør skriptet som administrator på Windows 11 x64-maskinen; det laster ned klienten og oppretter en oppstartsoppgave for den innloggede brukeren.
+Bruk knappen **Last ned installasjon for Windows** på forsiden for å hente `install.ps1`. Kjør skriptet som administrator på Windows 11 x64-maskinen; det laster ned klienten og oppretter en oppstartsoppgave for den interaktive, innloggede brukeren. Angi eventuelt målbrukeren eksplisitt med `-User DOMENE\bruker`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -User "DOMENE\bruker"
+```
 
 Forsiden har knappene **Lås** og **Tillat** for hver PC. Låsingen skjer ved PC-ens neste heartbeat, og handlingen går automatisk tilbake til `allow` ved ny dato.
 

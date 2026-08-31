@@ -60,6 +60,8 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
 <body>
   <h1>ScreenGate</h1>
   <p><a href="/downloads/install.ps1"><button>Last ned installasjon for Windows</button></a></p>
+  <p>Kjør deretter i PowerShell som administrator:</p>
+  <code>powershell -ExecutionPolicy Bypass -File .\install.ps1 -User "DOMENE\bruker"</code>
   <h2>Aktivitet {{.Date}}</h2>
   {{if .Activities}}
   <table>
