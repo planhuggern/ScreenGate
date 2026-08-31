@@ -59,6 +59,7 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
 </head>
 <body>
   <h1>ScreenGate</h1>
+  <p><a href="/downloads/screengate-client.exe"><button>Last ned Windows-klient</button></a></p>
   <h2>Aktivitet {{.Date}}</h2>
   {{if .Activities}}
   <table>
@@ -219,6 +220,16 @@ func (a *application) deviceActionHandler(w http.ResponseWriter, r *http.Request
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func downloadClientHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.microsoft.portable-executable")
+	w.Header().Set("Content-Disposition", "attachment; filename=screengate-client.exe")
+	http.ServeFile(w, r, "/client/screengate-client.exe")
+}
+
 func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -264,6 +275,7 @@ func main() {
 
 	app := newApplication(db)
 	mux := http.NewServeMux()
+	mux.HandleFunc("/downloads/screengate-client.exe", downloadClientHandler)
 	mux.HandleFunc("/device-action", app.deviceActionHandler)
 	mux.HandleFunc("/", app.dashboardHandler)
 	mux.HandleFunc("/heartbeat", app.heartbeatHandler)

@@ -150,3 +150,13 @@ func TestDeviceActionHandler(t *testing.T) {
 		t.Fatalf("action = %q, want lock", action)
 	}
 }
+
+func TestDownloadClientRejectsOtherMethods(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	downloadClientHandler(rec, httptest.NewRequest(http.MethodPost, "/downloads/screengate-client.exe", nil))
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
