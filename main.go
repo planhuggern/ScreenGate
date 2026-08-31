@@ -55,7 +55,7 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ScreenGate</title>
-  <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}</style>
+  <style>body{font-family:system-ui,sans-serif;max-width:820px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}.switch{position:relative;display:inline-block;width:52px;height:28px}.switch input{opacity:0;width:0;height:0}.slider{position:absolute;inset:0;background:#22a06b;border-radius:28px;cursor:pointer;transition:.2s}.slider:before{content:"";position:absolute;height:22px;width:22px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.2s}.switch input:checked+.slider{background:#d14343}.switch input:checked+.slider:before{transform:translateX(24px)}.action-label{font-size:.85rem;margin-left:.35rem}</style>
 </head>
 <body>
   <h1>ScreenGate</h1>
@@ -65,8 +65,7 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
   <table>
     <tr><th>PC</th><th>Bruker</th><th>Brukt i dag</th><th>Sist rapportert</th><th>Handling</th></tr>
     {{range .Activities}}<tr><td>{{.DeviceID}}</td><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>{{.LastReportedAt}}</td><td>
-      {{.Action}}
-      <form method="post" action="/device-action"><input type="hidden" name="device_id" value="{{.DeviceID}}"><button name="action" value="lock">Lås</button><button name="action" value="allow">Tillat</button></form>
+      <form method="post" action="/device-action"><input type="hidden" name="device_id" value="{{.DeviceID}}"><input type="hidden" name="action" value="{{.Action}}"><label class="switch"><input type="checkbox" {{if eq .Action "lock"}}checked{{end}} onchange="this.form.querySelector('input[name=action]').value=this.checked?'lock':'allow';this.form.submit()"><span class="slider"></span></label><span class="action-label">{{if eq .Action "lock"}}Lås{{else}}Tillat{{end}}</span><noscript><button type="submit">Lagre</button></noscript></form>
     </td></tr>{{end}}
   </table>
   {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
