@@ -61,7 +61,8 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
   <h1>ScreenGate</h1>
   <p><a href="/downloads/install.ps1"><button>Last ned installasjon for Windows</button></a></p>
   <p>Kjør deretter i PowerShell som administrator:</p>
-  <code>powershell -ExecutionPolicy Bypass -File .\install.ps1 -User "DOMENE\bruker"</code>
+  <code>powershell -ExecutionPolicy Bypass -File .\install.ps1</code>
+  <p>Skriptet viser en liste over Windows-brukere. Velg brukeren som skal kjøre klienten.</p>
   <h3>Avinstaller</h3>
   <p>Kjør dette i PowerShell som administrator for å fjerne oppstartsoppgaven og klientfilene:</p>
   <code>Unregister-ScheduledTask -TaskName "ScreenGate Client" -Confirm:$false; Remove-Item "C:\Program Files\ScreenGate" -Recurse -Force</code>

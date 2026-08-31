@@ -13,11 +13,32 @@ $clientUrl = "$($serverUri.Scheme)://$($serverUri.Authority)/downloads/screengat
 $installDir = Join-Path $env:ProgramFiles "ScreenGate"
 $clientPath = Join-Path $installDir "screengate-client.exe"
 if (-not $User) {
-    $User = (Get-CimInstance Win32_ComputerSystem).UserName
+    $users = Get-CimInstance Win32_UserProfile |
+        Where-Object { -not $_.Special -and $_.LocalPath } |
+        ForEach-Object {
+            try {
+                [pscustomobject]@{
+                    User = (New-Object Security.Principal.SecurityIdentifier($_.SID)).Translate([Security.Principal.NTAccount]).Value
+                }
+            } catch {}
+        } |
+        Sort-Object User -Unique
+
+    if (-not $users) {
+        throw "Fant ingen lokale brukerprofiler. Oppgi -User DATAMASKIN\\bruker."
+    }
+
+    Write-Host "Velg brukeren som skal kjøre ScreenGate-klienten:"
+    for ($i = 0; $i -lt $users.Count; $i++) {
+        Write-Host "[$($i + 1)] $($users[$i].User)"
+    }
+    $selection = [int](Read-Host "Nummer") - 1
+    if ($selection -lt 0 -or $selection -ge $users.Count) {
+        throw "Ugyldig brukervalg."
+    }
+    $User = $users[$selection].User
 }
-if (-not $User) {
-    throw "Fant ingen innlogget Windows-bruker. Oppgi -User DOMENE\\bruker."
-}
+$User = $User.Replace('/', '\')
 
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 Invoke-WebRequest -Uri $clientUrl -OutFile $clientPath
@@ -25,6 +46,7 @@ Invoke-WebRequest -Uri $clientUrl -OutFile $clientPath
 $action = New-ScheduledTaskAction -Execute $clientPath -Argument ("-server `"$ServerUrl`"")
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $User
 $taskPrincipal = New-ScheduledTaskPrincipal -UserId $User -LogonType Interactive -RunLevel Limited
+Stop-ScheduledTask -TaskName "ScreenGate Client" -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName "ScreenGate Client" -Action $action -Trigger $trigger -Principal $taskPrincipal -Force | Out-Null
 Start-ScheduledTask -TaskName "ScreenGate Client"
 
