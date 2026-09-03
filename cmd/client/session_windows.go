@@ -3,6 +3,7 @@
 package main
 
 import (
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -41,6 +42,9 @@ var (
 func startSessionEvents() <-chan string {
 	events := make(chan string, 1)
 	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
 		className, _ := syscall.UTF16PtrFromString("STATIC")
 		window, _, _ := createWindowEx.Call(0, uintptr(unsafe.Pointer(className)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 		if window == 0 {
