@@ -1,5 +1,11 @@
 //go:build windows
 
+// Tolker hver
+// heartbeat som blocked=true/false, sender
+// heartbeat straks ved session unlock/logon,
+// og låser når den ferske beslutningen
+// fortsatt er lock.
+
 package main
 
 import (
@@ -149,8 +155,31 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	lastStatus := ""
+	state := blockedState{}
 	tracker := focusTracker{}
 	pendingEvents := []focusEvent{}
+	sessionEvents := startSessionEvents()
+
+	applyHeartbeat := func() (string, error) {
+		action, err := postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 30)
+		if err != nil {
+			return "", err
+		}
+		state.applyServerAction(action)
+		return action, nil
+	}
+
+	if action, err := applyHeartbeat(); err != nil {
+		log.Printf("server unavailable: %v", err)
+		lastStatus = "unreachable"
+	} else {
+		log.Printf("server_action=%s blocked=%t", action, state.blocked)
+		lastStatus = action
+		if action == "lock" {
+			lockWorkStation.Call()
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -169,8 +198,27 @@ func main() {
 				pendingEvents = append(pendingEvents, newFocusEvent(deviceID, currentUser.Username, previousApp, activeSeconds, now))
 				pendingEvents = flushEvents(client, eventEndpoint, pendingEvents)
 			}
+		case sessionEvent, ok := <-sessionEvents:
+			if !ok {
+				sessionEvents = nil
+				continue
+			}
+			wasBlocked := state.blocked
+			action, err := applyHeartbeat()
+			if err != nil {
+				log.Printf("session_event=%s heartbeat_error=%v blocked=%t", sessionEvent, err, state.blocked)
+				if wasBlocked && state.lockOnSessionEventWhenHeartbeatFails() {
+					lockWorkStation.Call()
+				}
+				continue
+			}
+			log.Printf("session_event=%s heartbeat_action=%s blocked=%t", sessionEvent, action, state.blocked)
+			lastStatus = action
+			if action == "lock" {
+				lockWorkStation.Call()
+			}
 		case <-report.C:
-			action, err := postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 30)
+			action, err := applyHeartbeat()
 			if err != nil {
 				if lastStatus != "unreachable" {
 					log.Printf("server unavailable: %v", err)
@@ -180,7 +228,7 @@ func main() {
 			}
 			pendingEvents = flushEvents(client, eventEndpoint, pendingEvents)
 			if action != lastStatus {
-				log.Printf("server action=%s", action)
+				log.Printf("server_action=%s blocked=%t", action, state.blocked)
 				lastStatus = action
 			}
 			if action == "lock" {
