@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -33,8 +34,9 @@ type heartbeat struct {
 }
 
 type response struct {
-	Action        string `json:"action"`
-	PolicyVersion int    `json:"policy_version"`
+	Action           string `json:"action"`
+	PolicyVersion    int    `json:"policy_version"`
+	RemainingSeconds int    `json:"remaining_seconds"`
 }
 
 type focusEvent struct {
@@ -136,7 +138,12 @@ func newFocusEvent(deviceID, username, app string, activeSeconds int, timestamp 
 func main() {
 	configureLogging()
 	endpoint := flag.String("server", "http://10.0.0.20:8081/heartbeat", "ScreenGate heartbeat URL")
+	debugRemaining := flag.String("debug-remaining", "", "comma-separated remaining_seconds values for warning testing")
 	flag.Parse()
+	if *debugRemaining != "" {
+		runWarningDebug(*debugRemaining)
+		return
+	}
 
 	deviceID, err := os.Hostname()
 	if err != nil {
@@ -157,6 +164,7 @@ func main() {
 	defer stop()
 	lastStatus := ""
 	state := blockedState{}
+	warnings := warningState{}
 	tracker := focusTracker{}
 	pendingEvents := []focusEvent{}
 	sessionEvents := startSessionEvents()
@@ -167,8 +175,15 @@ func main() {
 			return "", err
 		}
 		state.applyServerAction(result.Action)
-		if state.updatePolicyVersion(result.PolicyVersion) {
+		warning, policyChanged := warnings.observe(result.PolicyVersion, result.RemainingSeconds)
+		if policyChanged {
 			log.Printf("policy_version=%d changed=true", result.PolicyVersion)
+		}
+		if warning != nil {
+			log.Printf("screen_time_warning=%d remaining_seconds=%d", warning.threshold, result.RemainingSeconds)
+			if err := showWarning(*warning); err != nil {
+				log.Printf("warning error: %v", err)
+			}
 		}
 		return result.Action, nil
 	}
@@ -240,4 +255,23 @@ func main() {
 			}
 		}
 	}
+}
+
+func runWarningDebug(values string) {
+	state := warningState{}
+	for _, value := range strings.Split(values, ",") {
+		remaining, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			log.Printf("invalid debug remaining value: %s", value)
+			continue
+		}
+		warning, _ := state.observe(1, remaining)
+		if warning != nil {
+			log.Printf("debug warning=%d remaining_seconds=%d", warning.threshold, remaining)
+			if err := showWarning(*warning); err != nil {
+				log.Printf("warning error: %v", err)
+			}
+		}
+	}
+	time.Sleep(6 * time.Second)
 }
