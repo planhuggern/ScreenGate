@@ -102,6 +102,36 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
 </body>
 </html>`))
 
+var overviewTemplate = template.Must(template.New("overview").Funcs(template.FuncMap{
+	"duration": func(seconds int) string {
+		return (time.Duration(seconds) * time.Second).String()
+	},
+	"quota": func(seconds int) string {
+		if seconds == 0 {
+			return "Ubegrenset"
+		}
+		return (time.Duration(seconds) * time.Second).String()
+	},
+}).Parse(`<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScreenGate</title>
+  <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}</style>
+</head>
+<body>
+  <h1>ScreenGate</h1>
+  <h2>Aktivitet {{.Date}}</h2>
+  {{if .Activities}}
+  <table>
+    <tr><th>Bruker</th><th>Brukt i dag</th><th>Maks per dag</th><th>Sist rapportert</th></tr>
+    {{range .Activities}}<tr><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>{{quota .QuotaSeconds}}</td><td>{{.LastReportedAt}}</td></tr>{{end}}
+  </table>
+  {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
+</body>
+</html>`))
+
 func newApplication(db *sql.DB) *application {
 	return &application{db: db, adminPath: "/admin"}
 }
@@ -231,12 +261,7 @@ func (a *application) addHeartbeat(h heartbeat) (int, error) {
 	return dailyTotal, nil
 }
 
-func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != a.adminPath {
-		http.NotFound(w, r)
-		return
-	}
-
+func (a *application) todaysActivities() ([]activity, error) {
 	date := today()
 	rows, err := a.db.Query(`SELECT d.user, d.total_seconds, MAX(h.reported_at), COALESCE(q.daily_quota_seconds, 0)
 		FROM heartbeats h
@@ -246,8 +271,7 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 		GROUP BY d.user, d.total_seconds, q.daily_quota_seconds
 		ORDER BY d.user`, date)
 	if err != nil {
-		http.Error(w, "database error", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -255,19 +279,48 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item activity
 		if err := rows.Scan(&item.User, &item.TotalSeconds, &item.LastReportedAt, &item.QuotaSeconds); err != nil {
-			http.Error(w, "database error", http.StatusInternalServerError)
-			return
+			return nil, err
 		}
 		activities = append(activities, item)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return activities, nil
+}
+
+func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != a.adminPath {
+		http.NotFound(w, r)
+		return
+	}
+
+	activities, err := a.todaysActivities()
+	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := dashboardTemplate.Execute(w, dashboard{Date: date, Activities: activities, AdminPath: a.adminPath}); err != nil {
+	if err := dashboardTemplate.Execute(w, dashboard{Date: today(), Activities: activities, AdminPath: a.adminPath}); err != nil {
 		log.Printf("dashboard error: %v", err)
+	}
+}
+
+func (a *application) overviewHandler(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	activities, err := a.todaysActivities()
+	if err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := overviewTemplate.Execute(w, dashboard{Date: today(), Activities: activities}); err != nil {
+		log.Printf("overview error: %v", err)
 	}
 }
 
@@ -396,6 +449,7 @@ func main() {
 	mux.HandleFunc("/event", eventHandler)
 	mux.HandleFunc(app.adminPath, app.dashboardHandler)
 	mux.HandleFunc("/heartbeat", app.heartbeatHandler)
+	mux.HandleFunc("/", app.overviewHandler)
 
 	server := &http.Server{Addr: ":8080", Handler: mux}
 	go func() {

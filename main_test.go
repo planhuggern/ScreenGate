@@ -145,6 +145,24 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 	}
 }
 
+func TestOverviewShowsActivityWithoutAdminControls(t *testing.T) {
+	app := testApplication(t)
+	if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+
+	app.overviewHandler(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	page := rec.Body.String()
+	if !strings.Contains(page, "barn1") || strings.Contains(page, "Last ned installasjon") || strings.Contains(page, "name=\"hours\"") {
+		t.Fatalf("unexpected overview page: %s", page)
+	}
+}
+
 func TestHeartbeatLocksWhenDailyQuotaIsReached(t *testing.T) {
 	app := testApplication(t)
 	if err := app.setUserQuota("barn1", 1); err != nil {
