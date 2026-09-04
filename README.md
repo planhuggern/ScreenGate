@@ -10,7 +10,7 @@ docker compose up --build
 
 Serveren lytter på `http://localhost:8081`.
 
-Åpne `http://localhost:8081/` for en enkel oversikt over dagens aktivitet.
+Adminoversikten ligger på stien satt i `ADMIN_PATH` i `docker-compose.yml`.
 
 Bruk knappen **Last ned installasjon for Windows** på forsiden for å hente `install.ps1`. Kjør skriptet som administrator på Windows 11 x64-maskinen; det viser en liste over kjente brukerprofiler. Velg brukeren som skal kjøre klienten.
 

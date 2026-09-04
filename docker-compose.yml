@@ -3,6 +3,7 @@ services:
     build: .
     environment:
       DATABASE_PATH: /data/screengate.db
+      ADMIN_PATH: /admin-4539c2c04a617d305f0d02215fc3b746
     ports:
       - "8081:8080"
     volumes:

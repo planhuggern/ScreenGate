@@ -40,7 +40,8 @@ type focusEvent struct {
 }
 
 type application struct {
-	db *sql.DB
+	db        *sql.DB
+	adminPath string
 }
 
 type activity struct {
@@ -53,6 +54,7 @@ type activity struct {
 type dashboard struct {
 	Date       string
 	Activities []activity
+	AdminPath  string
 }
 
 var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.FuncMap{
@@ -81,7 +83,7 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
 </head>
 <body>
   <h1>ScreenGate</h1>
-  <p><a href="/downloads/install.ps1"><button>Last ned installasjon for Windows</button></a></p>
+  <p><a href="{{.AdminPath}}/downloads/install.ps1"><button>Last ned installasjon for Windows</button></a></p>
   <p>Kjør deretter i PowerShell som administrator:</p>
   <code>powershell -ExecutionPolicy Bypass -File .\install.ps1</code>
   <p>Skriptet viser en liste over Windows-brukere. Velg brukeren som skal kjøre klienten.</p>
@@ -93,7 +95,7 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
   <table>
     <tr><th>Bruker</th><th>Brukt i dag</th><th>Maks per dag</th><th>Sist rapportert</th></tr>
     {{range .Activities}}<tr><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>
-      <form method="post" action="/user-quota"><input type="hidden" name="user" value="{{.User}}"><input type="number" name="hours" min="0" value="{{hours .QuotaSeconds}}"> t <input type="number" name="minutes" min="0" max="59" value="{{minutes .QuotaSeconds}}"> min <button>Lagre</button><br><small>{{quota .QuotaSeconds}}</small></form>
+      <form method="post" action="{{$.AdminPath}}/user-quota"><input type="hidden" name="user" value="{{.User}}"><input type="number" name="hours" min="0" value="{{hours .QuotaSeconds}}"> t <input type="number" name="minutes" min="0" max="59" value="{{minutes .QuotaSeconds}}"> min <button>Lagre</button><br><small>{{quota .QuotaSeconds}}</small></form>
     </td><td>{{.LastReportedAt}}</td></tr>{{end}}
   </table>
   {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
@@ -101,7 +103,7 @@ var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.F
 </html>`))
 
 func newApplication(db *sql.DB) *application {
-	return &application{db: db}
+	return &application{db: db, adminPath: "/admin"}
 }
 
 func openDatabase(path string) (*sql.DB, error) {
@@ -230,7 +232,7 @@ func (a *application) addHeartbeat(h heartbeat) (int, error) {
 }
 
 func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	if r.URL.Path != a.adminPath {
 		http.NotFound(w, r)
 		return
 	}
@@ -264,7 +266,7 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := dashboardTemplate.Execute(w, dashboard{Date: date, Activities: activities}); err != nil {
+	if err := dashboardTemplate.Execute(w, dashboard{Date: date, Activities: activities, AdminPath: a.adminPath}); err != nil {
 		log.Printf("dashboard error: %v", err)
 	}
 }
@@ -290,7 +292,7 @@ func (a *application) userQuotaHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, a.adminPath, http.StatusSeeOther)
 }
 
 func downloadClientHandler(w http.ResponseWriter, r *http.Request) {
@@ -384,12 +386,15 @@ func main() {
 	defer db.Close()
 
 	app := newApplication(db)
+	if adminPath := os.Getenv("ADMIN_PATH"); adminPath != "" && adminPath[0] == '/' {
+		app.adminPath = adminPath
+	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/downloads/install.ps1", downloadInstallerHandler)
-	mux.HandleFunc("/downloads/screengate-client.exe", downloadClientHandler)
-	mux.HandleFunc("/user-quota", app.userQuotaHandler)
+	mux.HandleFunc(app.adminPath+"/downloads/install.ps1", downloadInstallerHandler)
+	mux.HandleFunc(app.adminPath+"/downloads/screengate-client.exe", downloadClientHandler)
+	mux.HandleFunc(app.adminPath+"/user-quota", app.userQuotaHandler)
 	mux.HandleFunc("/event", eventHandler)
-	mux.HandleFunc("/", app.dashboardHandler)
+	mux.HandleFunc(app.adminPath, app.dashboardHandler)
 	mux.HandleFunc("/heartbeat", app.heartbeatHandler)
 
 	server := &http.Server{Addr: ":8080", Handler: mux}

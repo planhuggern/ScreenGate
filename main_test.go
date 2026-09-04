@@ -135,7 +135,7 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 
-	app.dashboardHandler(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	app.dashboardHandler(rec, httptest.NewRequest(http.MethodGet, app.adminPath, nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)

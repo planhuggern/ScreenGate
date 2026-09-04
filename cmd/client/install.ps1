@@ -1,5 +1,6 @@
 param(
     [string]$ServerUrl = "http://10.0.0.20:8081/heartbeat",
+    [string]$AdminPath = "/admin-4539c2c04a617d305f0d02215fc3b746",
     [string]$User
 )
 
@@ -9,7 +10,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 $serverUri = [Uri]$ServerUrl
-$clientUrl = "$($serverUri.Scheme)://$($serverUri.Authority)/downloads/screengate-client.exe"
+$clientUrl = "$($serverUri.Scheme)://$($serverUri.Authority)$AdminPath/downloads/screengate-client.exe"
 $installDir = Join-Path $env:ProgramFiles "ScreenGate"
 $clientPath = Join-Path $installDir "screengate-client.exe"
 if (-not $User) {
