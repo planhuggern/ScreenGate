@@ -5,13 +5,14 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"syscall"
 )
 
 func showWarning(warning screenTimeWarning) error {
 	script := fmt.Sprintf(`Add-Type -AssemblyName PresentationFramework
 $window = New-Object Windows.Window
-$window.Width = 320
-$window.Height = 92
+$window.Width = 560
+$window.Height = 170
 $window.WindowStyle = 'None'
 $window.ResizeMode = 'NoResize'
 $window.ShowInTaskbar = $false
@@ -24,7 +25,7 @@ $window.Top = [System.Windows.SystemParameters]::WorkArea.Bottom - $window.Heigh
 $text = New-Object Windows.Controls.TextBlock
 $text.Text = '%s'
 $text.Foreground = [Windows.Media.Brushes]::White
-$text.FontSize = 22
+$text.FontSize = 36
 $text.FontWeight = 'SemiBold'
 $text.VerticalAlignment = 'Center'
 $text.HorizontalAlignment = 'Center'
@@ -39,5 +40,7 @@ $timer.add_Tick({
 })
 $window.add_Loaded({ $timer.Start() })
 [void]$window.ShowDialog()`, warning.color, warning.message)
-	return exec.Command("powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script).Start()
+	command := exec.Command("powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script)
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return command.Start()
 }
