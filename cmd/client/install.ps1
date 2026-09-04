@@ -6,7 +6,7 @@ param(
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw "Kjør install.ps1 fra et PowerShell-vindu åpnet som administrator."
+    throw "Kjor install.ps1 fra et PowerShell-vindu apnet som administrator."
 }
 
 $serverUri = [Uri]$ServerUrl
@@ -29,7 +29,7 @@ if (-not $User) {
         throw "Fant ingen lokale brukerprofiler. Oppgi -User DATAMASKIN\\bruker."
     }
 
-    Write-Host "Velg brukeren som skal kjøre ScreenGate-klienten:"
+    Write-Host "Velg brukeren som skal kjore ScreenGate-klienten:"
     for ($i = 0; $i -lt $users.Count; $i++) {
         Write-Host "[$($i + 1)] $($users[$i].User)"
     }
@@ -42,12 +42,28 @@ if (-not $User) {
 $User = $User.Replace('/', '\')
 
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-Invoke-WebRequest -Uri $clientUrl -OutFile $clientPath
+Stop-ScheduledTask -TaskName "ScreenGate Client" -ErrorAction SilentlyContinue
+
+$temporaryClientPath = "$clientPath.new"
+Remove-Item -LiteralPath $temporaryClientPath -Force -ErrorAction SilentlyContinue
+Invoke-WebRequest -Uri $clientUrl -OutFile $temporaryClientPath
+
+for ($attempt = 1; $attempt -le 10; $attempt++) {
+    try {
+        Remove-Item -LiteralPath $clientPath -Force -ErrorAction Stop
+        Move-Item -LiteralPath $temporaryClientPath -Destination $clientPath -ErrorAction Stop
+        break
+    } catch {
+        if ($attempt -eq 10) {
+            throw "Kunne ikke erstatte den gamle ScreenGate-klienten. Lukk eventuelle manuelt startede ScreenGate-klienter og prov igjen."
+        }
+        Start-Sleep -Seconds 1
+    }
+}
 
 $action = New-ScheduledTaskAction -Execute $clientPath -Argument ("-server `"$ServerUrl`"")
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $User
 $taskPrincipal = New-ScheduledTaskPrincipal -UserId $User -LogonType Interactive -RunLevel Limited
-Stop-ScheduledTask -TaskName "ScreenGate Client" -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName "ScreenGate Client" -Action $action -Trigger $trigger -Principal $taskPrincipal -Force | Out-Null
 Start-ScheduledTask -TaskName "ScreenGate Client"
 
