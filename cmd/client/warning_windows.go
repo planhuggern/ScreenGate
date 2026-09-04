@@ -5,7 +5,6 @@ package main
 import (
 	"fmt"
 	"os/exec"
-	"syscall"
 )
 
 func showWarning(warning screenTimeWarning) error {
@@ -40,7 +39,6 @@ $timer.add_Tick({
 })
 $window.add_Loaded({ $timer.Start() })
 [void]$window.ShowDialog()`, warning.color, warning.message)
-	command := exec.Command("powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script)
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	command := exec.Command("powershell.exe", "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-Command", script)
 	return command.Start()
 }
