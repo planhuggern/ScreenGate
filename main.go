@@ -28,6 +28,7 @@ type response struct {
 	Message           string `json:"message"`
 	DailyTotalSeconds int    `json:"daily_total_seconds"`
 	PolicyVersion     int    `json:"policy_version"`
+	RemainingSeconds  int    `json:"remaining_seconds"`
 }
 
 type focusEvent struct {
@@ -235,6 +236,17 @@ func (a *application) userPolicyVersion(user string) (int, error) {
 	return version, err
 }
 
+func screenTimeDecision(dailyTotal, quota int) (string, int) {
+	if quota <= 0 {
+		return "allow", 0
+	}
+	remaining := quota - dailyTotal
+	if remaining <= 0 {
+		return "lock", 0
+	}
+	return "allow", remaining
+}
+
 func (a *application) addHeartbeat(h heartbeat) (int, error) {
 	tx, err := a.db.Begin()
 	if err != nil {
@@ -397,6 +409,7 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	var h heartbeat
 	var dailyTotal int
 	var policyVersion int
+	var remainingSeconds int
 	action := "allow"
 	if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
 		log.Printf("invalid heartbeat: %v", err)
@@ -411,8 +424,8 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 			quota, quotaErr := a.userQuota(h.User)
 			if quotaErr != nil {
 				log.Printf("database error: %v", quotaErr)
-			} else if quota > 0 && dailyTotal >= quota {
-				action = "lock"
+			} else {
+				action, remainingSeconds = screenTimeDecision(dailyTotal, quota)
 			}
 			policyVersion, err = a.userPolicyVersion(h.User)
 			if err != nil {
@@ -424,7 +437,7 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response{Action: action, Message: "ok", DailyTotalSeconds: dailyTotal, PolicyVersion: policyVersion})
+	json.NewEncoder(w).Encode(response{Action: action, Message: "ok", DailyTotalSeconds: dailyTotal, PolicyVersion: policyVersion, RemainingSeconds: remainingSeconds})
 }
 
 func main() {

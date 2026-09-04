@@ -239,6 +239,52 @@ func TestPolicyVersionIncrementsWhenQuotaChanges(t *testing.T) {
 	}
 }
 
+func TestScreenTimeDecision(t *testing.T) {
+	tests := []struct {
+		name      string
+		daily     int
+		quota     int
+		action    string
+		remaining int
+	}{
+		{name: "time remaining", daily: 3120, quota: 3600, action: "allow", remaining: 480},
+		{name: "exactly at limit", daily: 3600, quota: 3600, action: "lock", remaining: 0},
+		{name: "over limit", daily: 3700, quota: 3600, action: "lock", remaining: 0},
+		{name: "unlimited", daily: 999999, quota: 0, action: "allow", remaining: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			action, remaining := screenTimeDecision(test.daily, test.quota)
+			if action != test.action || remaining != test.remaining {
+				t.Fatalf("decision = %q, %d; want %q, %d", action, remaining, test.action, test.remaining)
+			}
+			if remaining < 0 {
+				t.Fatalf("remaining = %d, must not be negative", remaining)
+			}
+		})
+	}
+}
+
+func TestHeartbeatReturnsRemainingSeconds(t *testing.T) {
+	app := testApplication(t)
+	if err := app.setUserQuota("barn1", 3600); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":3120,"reported_at":"2026-09-04T12:00:00+02:00"}`))
+	rec := httptest.NewRecorder()
+
+	app.heartbeatHandler(rec, req)
+
+	var got response
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Action != "allow" || got.DailyTotalSeconds != 3120 || got.RemainingSeconds != 480 {
+		t.Fatalf("response = %#v", got)
+	}
+}
+
 func TestDownloadClientRejectsOtherMethods(t *testing.T) {
 	rec := httptest.NewRecorder()
 
