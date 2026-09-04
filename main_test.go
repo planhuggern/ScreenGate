@@ -162,6 +162,9 @@ func TestHeartbeatLocksWhenDailyQuotaIsReached(t *testing.T) {
 	if got.Action != "lock" {
 		t.Fatalf("action = %q, want lock", got.Action)
 	}
+	if got.PolicyVersion != 1 {
+		t.Fatalf("policy version = %d, want 1", got.PolicyVersion)
+	}
 }
 
 func TestUserQuotaHandler(t *testing.T) {
@@ -181,6 +184,40 @@ func TestUserQuotaHandler(t *testing.T) {
 	}
 	if quota != 5400 {
 		t.Fatalf("quota = %d, want 5400", quota)
+	}
+}
+
+func TestPolicyVersionIncrementsWhenQuotaChanges(t *testing.T) {
+	app := testApplication(t)
+	if err := app.setUserQuota("barn1", 3600); err != nil {
+		t.Fatal(err)
+	}
+	version, err := app.userPolicyVersion("barn1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 {
+		t.Fatalf("version = %d, want 1", version)
+	}
+	if err := app.setUserQuota("barn1", 3600); err != nil {
+		t.Fatal(err)
+	}
+	version, err = app.userPolicyVersion("barn1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 {
+		t.Fatalf("version = %d, want 1 after unchanged quota", version)
+	}
+	if err := app.setUserQuota("barn1", 7200); err != nil {
+		t.Fatal(err)
+	}
+	version, err = app.userPolicyVersion("barn1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 2 {
+		t.Fatalf("version = %d, want 2", version)
 	}
 }
 

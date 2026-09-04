@@ -33,7 +33,8 @@ type heartbeat struct {
 }
 
 type response struct {
-	Action string `json:"action"`
+	Action        string `json:"action"`
+	PolicyVersion int    `json:"policy_version"`
 }
 
 type focusEvent struct {
@@ -63,31 +64,31 @@ func configureLogging() {
 	}
 }
 
-func postHeartbeat(client *http.Client, endpoint, deviceID, username string, activeSeconds int) (string, error) {
+func postHeartbeat(client *http.Client, endpoint, deviceID, username string, activeSeconds int) (response, error) {
 	body, err := json.Marshal(heartbeat{DeviceID: deviceID, User: username, ActiveSeconds: activeSeconds, ReportedAt: time.Now()})
 	if err != nil {
-		return "", err
+		return response{}, err
 	}
 
 	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return response{}, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	httpResponse, err := client.Do(request)
 	if err != nil {
-		return "", err
+		return response{}, err
 	}
 	defer httpResponse.Body.Close()
 
 	var result response
 	if err := json.NewDecoder(httpResponse.Body).Decode(&result); err != nil {
-		return "", err
+		return response{}, err
 	}
 	if result.Action != "allow" && result.Action != "lock" {
-		return "", errors.New("unknown server action")
+		return response{}, errors.New("unknown server action")
 	}
-	return result.Action, nil
+	return result, nil
 }
 
 func postEvent(client *http.Client, endpoint string, event focusEvent) error {
@@ -161,12 +162,15 @@ func main() {
 	sessionEvents := startSessionEvents()
 
 	applyHeartbeat := func() (string, error) {
-		action, err := postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 30)
+		result, err := postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 30)
 		if err != nil {
 			return "", err
 		}
-		state.applyServerAction(action)
-		return action, nil
+		state.applyServerAction(result.Action)
+		if state.updatePolicyVersion(result.PolicyVersion) {
+			log.Printf("policy_version=%d changed=true", result.PolicyVersion)
+		}
+		return result.Action, nil
 	}
 
 	if action, err := applyHeartbeat(); err != nil {

@@ -57,3 +57,16 @@ func TestFreshAllowAfterUnlockClearsBlockedState(t *testing.T) {
 		t.Fatal("fresh allow after unlock did not clear blocked state")
 	}
 }
+
+func TestPolicyVersionChangeIsDetected(t *testing.T) {
+	state := blockedState{}
+	if !state.updatePolicyVersion(1) {
+		t.Fatal("first policy version was not detected")
+	}
+	if state.updatePolicyVersion(1) {
+		t.Fatal("unchanged policy version was detected as changed")
+	}
+	if !state.updatePolicyVersion(2) {
+		t.Fatal("new policy version was not detected")
+	}
+}

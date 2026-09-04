@@ -27,6 +27,7 @@ type response struct {
 	Action            string `json:"action"`
 	Message           string `json:"message"`
 	DailyTotalSeconds int    `json:"daily_total_seconds"`
+	PolicyVersion     int    `json:"policy_version"`
 }
 
 type focusEvent struct {
@@ -135,6 +136,18 @@ func openDatabase(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_policy_versions (
+		user TEXT PRIMARY KEY,
+		policy_version INTEGER NOT NULL
+	)`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO user_policy_versions (user, policy_version)
+		SELECT user, 1 FROM user_quotas`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return db, nil
 }
 
@@ -152,9 +165,42 @@ func (a *application) userQuota(user string) (int, error) {
 }
 
 func (a *application) setUserQuota(user string, quota int) error {
-	_, err := a.db.Exec(`INSERT INTO user_quotas (user, daily_quota_seconds) VALUES (?, ?)
-		ON CONFLICT(user) DO UPDATE SET daily_quota_seconds = excluded.daily_quota_seconds`, user, quota)
-	return err
+	tx, err := a.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var currentQuota int
+	err = tx.QueryRow("SELECT daily_quota_seconds FROM user_quotas WHERE user = ?", user).Scan(&currentQuota)
+	if err == sql.ErrNoRows {
+		if _, err := tx.Exec("INSERT INTO user_quotas (user, daily_quota_seconds) VALUES (?, ?)", user, quota); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO user_policy_versions (user, policy_version) VALUES (?, 1)", user); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else if currentQuota != quota {
+		if _, err := tx.Exec("UPDATE user_quotas SET daily_quota_seconds = ? WHERE user = ?", quota, user); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO user_policy_versions (user, policy_version) VALUES (?, 1)
+			ON CONFLICT(user) DO UPDATE SET policy_version = policy_version + 1`, user); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (a *application) userPolicyVersion(user string) (int, error) {
+	var version int
+	err := a.db.QueryRow("SELECT policy_version FROM user_policy_versions WHERE user = ?", user).Scan(&version)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return version, err
 }
 
 func (a *application) addHeartbeat(h heartbeat) (int, error) {
@@ -295,6 +341,7 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 
 	var h heartbeat
 	var dailyTotal int
+	var policyVersion int
 	action := "allow"
 	if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
 		log.Printf("invalid heartbeat: %v", err)
@@ -312,12 +359,17 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 			} else if quota > 0 && dailyTotal >= quota {
 				action = "lock"
 			}
+			policyVersion, err = a.userPolicyVersion(h.User)
+			if err != nil {
+				log.Printf("database error: %v", err)
+				policyVersion = 0
+			}
 			log.Printf("reported_at=%s device_id=%s user=%s active_seconds=%d daily_total_seconds=%d", h.ReportedAt.Format(time.RFC3339), h.DeviceID, h.User, h.ActiveSeconds, dailyTotal)
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response{Action: action, Message: "ok", DailyTotalSeconds: dailyTotal})
+	json.NewEncoder(w).Encode(response{Action: action, Message: "ok", DailyTotalSeconds: dailyTotal, PolicyVersion: policyVersion})
 }
 
 func main() {
