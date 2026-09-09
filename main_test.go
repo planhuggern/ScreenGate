@@ -145,6 +145,25 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 	}
 }
 
+func TestDashboardShowsKnownUserWithoutTodaysHeartbeat(t *testing.T) {
+	app := testApplication(t)
+	if _, err := app.db.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
+		VALUES (?, ?, ?, ?, ?)`, "2026-09-08T12:00:00+02:00", "2026-09-08", "pc-barn1", "barn1", 60); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+
+	app.dashboardHandler(rec, httptest.NewRequest(http.MethodGet, app.adminPath, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	page := rec.Body.String()
+	if !strings.Contains(page, "barn1") || !strings.Contains(page, "0s") || !strings.Contains(page, "2026-09-08T12:00:00") {
+		t.Fatalf("dashboard did not show known inactive user: %s", page)
+	}
+}
+
 func TestOverviewShowsActivityWithoutAdminControls(t *testing.T) {
 	app := testApplication(t)
 	if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: time.Now()}); err != nil {

@@ -275,13 +275,18 @@ func (a *application) addHeartbeat(h heartbeat) (int, error) {
 
 func (a *application) todaysActivities() ([]activity, error) {
 	date := today()
-	rows, err := a.db.Query(`SELECT d.user, d.total_seconds, MAX(h.reported_at), COALESCE(q.daily_quota_seconds, 0)
-		FROM heartbeats h
-		JOIN daily_totals d ON d.user = h.user AND d.date = h.date
-		LEFT JOIN user_quotas q ON q.user = d.user
-		WHERE d.date = ?
-		GROUP BY d.user, d.total_seconds, q.daily_quota_seconds
-		ORDER BY d.user`, date)
+	rows, err := a.db.Query(`WITH known_users AS (
+			SELECT user FROM heartbeats
+			UNION
+			SELECT user FROM user_quotas
+		)
+		SELECT u.user, COALESCE(d.total_seconds, 0), COALESCE(MAX(h.reported_at), ''), COALESCE(q.daily_quota_seconds, 0)
+		FROM known_users u
+		LEFT JOIN daily_totals d ON d.user = u.user AND d.date = ?
+		LEFT JOIN heartbeats h ON h.user = u.user
+		LEFT JOIN user_quotas q ON q.user = u.user
+		GROUP BY u.user, d.total_seconds, q.daily_quota_seconds
+		ORDER BY u.user`, date)
 	if err != nil {
 		return nil, err
 	}
