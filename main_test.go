@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,8 +22,8 @@ func testApplication(t *testing.T) *application {
 
 func dailyTotalFor(t *testing.T, app *application, user, date string) int {
 	t.Helper()
-	var total int
-	if err := app.db.QueryRow("SELECT total_seconds FROM daily_totals WHERE user = ? AND date = ?", user, date).Scan(&total); err != nil {
+	total, err := app.dailyTotal(user, date)
+	if err != nil {
 		t.Fatal(err)
 	}
 	return total
@@ -44,11 +43,31 @@ func TestHeartbeat(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got != (response{Action: "allow", Message: "ok", DailyTotalSeconds: 47}) {
+	if got != (response{Action: "allow", Message: "ok"}) {
 		t.Fatalf("response = %#v", got)
 	}
-	if total := dailyTotalFor(t, app, "barn1", today()); total != 47 {
-		t.Fatalf("daily total = %d, want 47", total)
+	if total := dailyTotalFor(t, app, "barn1", today()); total != 0 {
+		t.Fatalf("daily total = %d, want 0", total)
+	}
+}
+
+func TestHeartbeatUsesServerReceiveTime(t *testing.T) {
+	app := testApplication(t)
+	receivedAfter := time.Now()
+	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":0,"reported_at":"2000-01-01T00:00:00Z"}`))
+
+	app.heartbeatHandler(httptest.NewRecorder(), req)
+
+	var reportedAt string
+	if err := app.db.QueryRow("SELECT reported_at FROM heartbeats WHERE user = ?", "barn1").Scan(&reportedAt); err != nil {
+		t.Fatal(err)
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, reportedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timestamp.Before(receivedAfter) || timestamp.After(time.Now().Add(time.Second)) {
+		t.Fatalf("reported_at = %s, want server receive time", reportedAt)
 	}
 }
 
@@ -111,13 +130,15 @@ func TestEventRejectsInvalidInput(t *testing.T) {
 
 func TestHeartbeatAddsToUserTotal(t *testing.T) {
 	app := testApplication(t)
-	for _, seconds := range []int{60, 60} {
-		req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":`+strconv.Itoa(seconds)+`,"reported_at":"2026-08-31T12:00:00+02:00"}`))
-		app.heartbeatHandler(httptest.NewRecorder(), req)
+	start := time.Now().Add(-time.Minute)
+	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
+		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	if total := dailyTotalFor(t, app, "barn1", today()); total != 120 {
-		t.Fatalf("daily total = %d, want 120", total)
+	if total := dailyTotalFor(t, app, "barn1", today()); total != 60 {
+		t.Fatalf("daily total = %d, want 60", total)
 	}
 	var heartbeatCount int
 	if err := app.db.QueryRow("SELECT COUNT(*) FROM heartbeats WHERE user = ?", "barn1").Scan(&heartbeatCount); err != nil {
@@ -128,10 +149,49 @@ func TestHeartbeatAddsToUserTotal(t *testing.T) {
 	}
 }
 
+func TestDailyTotalUsesContinuousHeartbeatIntervals(t *testing.T) {
+	app := testApplication(t)
+	for _, timestamp := range []time.Time{
+		time.Date(2026, time.September, 9, 12, 0, 0, 0, time.Local),
+		time.Date(2026, time.September, 9, 12, 1, 3, 0, time.Local),
+		time.Date(2026, time.September, 9, 12, 2, 7, 0, time.Local),
+	} {
+		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if total := dailyTotalFor(t, app, "barn1", "2026-09-09"); total != 63 {
+		t.Fatalf("daily total = %d, want 63", total)
+	}
+}
+
+func TestDailyTotalSplitsHeartbeatIntervalAtMidnight(t *testing.T) {
+	app := testApplication(t)
+	for _, timestamp := range []time.Time{
+		time.Date(2026, time.September, 8, 23, 59, 40, 0, time.Local),
+		time.Date(2026, time.September, 9, 0, 0, 10, 0, time.Local),
+	} {
+		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if total := dailyTotalFor(t, app, "barn1", "2026-09-08"); total != 20 {
+		t.Fatalf("previous-day total = %d, want 20", total)
+	}
+	if total := dailyTotalFor(t, app, "barn1", "2026-09-09"); total != 10 {
+		t.Fatalf("current-day total = %d, want 10", total)
+	}
+}
+
 func TestDashboardShowsTodaysActivity(t *testing.T) {
 	app := testApplication(t)
-	if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: time.Now()}); err != nil {
-		t.Fatal(err)
+	start := time.Now().Add(-time.Minute)
+	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
+		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	rec := httptest.NewRecorder()
 
@@ -166,8 +226,11 @@ func TestDashboardShowsKnownUserWithoutTodaysHeartbeat(t *testing.T) {
 
 func TestOverviewShowsActivityWithoutAdminControls(t *testing.T) {
 	app := testApplication(t)
-	if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: time.Now()}); err != nil {
-		t.Fatal(err)
+	start := time.Now().Add(-time.Minute)
+	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
+		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	rec := httptest.NewRecorder()
 
@@ -187,7 +250,11 @@ func TestHeartbeatLocksWhenDailyQuotaIsReached(t *testing.T) {
 	if err := app.setUserQuota("barn1", 1); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":60,"reported_at":"2026-08-31T12:00:00+02:00"}`))
+	start := time.Now().Add(-time.Minute)
+	if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":60,"reported_at":"`+start.Add(time.Minute).Format(time.RFC3339Nano)+`"}`))
 	rec := httptest.NewRecorder()
 
 	app.heartbeatHandler(rec, req)
@@ -290,7 +357,13 @@ func TestHeartbeatReturnsRemainingSeconds(t *testing.T) {
 	if err := app.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":3120,"reported_at":"2026-09-04T12:00:00+02:00"}`))
+	start := time.Now().Add(-52 * time.Minute)
+	for i := 0; i < 52; i++ {
+		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start.Add(time.Duration(i) * time.Minute)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":0,"reported_at":"`+start.Add(52*time.Minute).Format(time.RFC3339Nano)+`"}`))
 	rec := httptest.NewRecorder()
 
 	app.heartbeatHandler(rec, req)

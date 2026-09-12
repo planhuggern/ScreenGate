@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -57,6 +58,11 @@ type dashboard struct {
 	Activities []activity
 	AdminPath  string
 }
+
+const (
+	heartbeatInterval = 30 * time.Second
+	maxHeartbeatGap   = heartbeatInterval * 21 / 10
+)
 
 var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.FuncMap{
 	"duration": func(seconds int) string {
@@ -254,23 +260,66 @@ func (a *application) addHeartbeat(h heartbeat) (int, error) {
 	}
 	defer tx.Rollback()
 
-	date := today()
+	date := h.ReportedAt.In(time.Local).Format("2006-01-02")
 	if _, err := tx.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
 		VALUES (?, ?, ?, ?, ?)`, h.ReportedAt.Format(time.RFC3339Nano), date, h.DeviceID, h.User, h.ActiveSeconds); err != nil {
-		return 0, err
-	}
-	if _, err := tx.Exec(`INSERT INTO daily_totals (user, date, total_seconds) VALUES (?, ?, ?)
-		ON CONFLICT(user, date) DO UPDATE SET total_seconds = total_seconds + excluded.total_seconds`, h.User, date, h.ActiveSeconds); err != nil {
-		return 0, err
-	}
-	var dailyTotal int
-	if err := tx.QueryRow("SELECT total_seconds FROM daily_totals WHERE user = ? AND date = ?", h.User, date).Scan(&dailyTotal); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
-	return dailyTotal, nil
+	return a.dailyTotal(h.User, date)
+}
+
+func (a *application) dailyTotal(user, date string) (int, error) {
+	dayStart, err := time.ParseInLocation("2006-01-02", date, time.Local)
+	if err != nil {
+		return 0, err
+	}
+	dayEnd := dayStart.AddDate(0, 0, 1)
+
+	rows, err := a.db.Query(`SELECT device_id, reported_at FROM heartbeats WHERE user = ?`, user)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	byDevice := make(map[string][]time.Time)
+	for rows.Next() {
+		var deviceID, reportedAt string
+		if err := rows.Scan(&deviceID, &reportedAt); err != nil {
+			return 0, err
+		}
+		timestamp, err := time.Parse(time.RFC3339Nano, reportedAt)
+		if err != nil {
+			return 0, err
+		}
+		byDevice[deviceID] = append(byDevice[deviceID], timestamp)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	total := time.Duration(0)
+	for _, timestamps := range byDevice {
+		slices.SortFunc(timestamps, func(a, b time.Time) int { return a.Compare(b) })
+		for i := 1; i < len(timestamps); i++ {
+			start, end := timestamps[i-1], timestamps[i]
+			if gap := end.Sub(start); gap <= 0 || gap > maxHeartbeatGap {
+				continue
+			}
+			if start.Before(dayStart) {
+				start = dayStart
+			}
+			if end.After(dayEnd) {
+				end = dayEnd
+			}
+			if end.After(start) {
+				total += end.Sub(start)
+			}
+		}
+	}
+	return int(total / time.Second), nil
 }
 
 func (a *application) todaysActivities() ([]activity, error) {
@@ -280,13 +329,12 @@ func (a *application) todaysActivities() ([]activity, error) {
 			UNION
 			SELECT user FROM user_quotas
 		)
-		SELECT u.user, COALESCE(d.total_seconds, 0), COALESCE(MAX(h.reported_at), ''), COALESCE(q.daily_quota_seconds, 0)
+		SELECT u.user, COALESCE(MAX(h.reported_at), ''), COALESCE(q.daily_quota_seconds, 0)
 		FROM known_users u
-		LEFT JOIN daily_totals d ON d.user = u.user AND d.date = ?
 		LEFT JOIN heartbeats h ON h.user = u.user
 		LEFT JOIN user_quotas q ON q.user = u.user
-		GROUP BY u.user, d.total_seconds, q.daily_quota_seconds
-		ORDER BY u.user`, date)
+		GROUP BY u.user, q.daily_quota_seconds
+		ORDER BY u.user`)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +343,11 @@ func (a *application) todaysActivities() ([]activity, error) {
 	var activities []activity
 	for rows.Next() {
 		var item activity
-		if err := rows.Scan(&item.User, &item.TotalSeconds, &item.LastReportedAt, &item.QuotaSeconds); err != nil {
+		if err := rows.Scan(&item.User, &item.LastReportedAt, &item.QuotaSeconds); err != nil {
+			return nil, err
+		}
+		item.TotalSeconds, err = a.dailyTotal(item.User, date)
+		if err != nil {
 			return nil, err
 		}
 		activities = append(activities, item)
@@ -418,10 +470,11 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	action := "allow"
 	if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
 		log.Printf("invalid heartbeat: %v", err)
-	} else if h.DeviceID == "" || h.User == "" || h.ActiveSeconds < 0 || h.ReportedAt.IsZero() {
-		log.Printf("invalid heartbeat: device_id, user and reported_at must not be empty, and active_seconds must not be negative")
+	} else if h.DeviceID == "" || h.User == "" || h.ActiveSeconds < 0 {
+		log.Printf("invalid heartbeat: device_id and user must not be empty, and active_seconds must not be negative")
 	} else {
 		var err error
+		h.ReportedAt = time.Now()
 		dailyTotal, err = a.addHeartbeat(h)
 		if err != nil {
 			log.Printf("database error: %v", err)

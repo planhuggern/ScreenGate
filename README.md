@@ -28,7 +28,7 @@ Kjør i PowerShell som administrator for å fjerne oppstartsoppgaven og klientfi
 Unregister-ScheduledTask -TaskName "ScreenGate Client" -Confirm:$false; Remove-Item "C:\Program Files\ScreenGate" -Recurse -Force
 ```
 
-Forsiden viser bruk per bruker og lar deg sette en daglig kvote i timer og minutter. `0 t 0 min` betyr ubegrenset. Når dagens bruk når kvoten, svarer serveren med `lock` ved neste heartbeat.
+Forsiden viser bruk per bruker og lar deg sette en daglig kvote i timer og minutter. `0 t 0 min` betyr ubegrenset. Skjermtid beregnes fra tidsrommet mellom heartbeats fra samme bruker og maskin: et tidsrom teller når det er høyst 63 sekunder (2,1 × 30-sekundersintervallet) mellom heartbeatene. Serveren bruker mottakstidspunktet sitt, ikke klientens timestamp. Når dagens bruk når kvoten, svarer serveren med `lock` ved neste heartbeat.
 
 ## Send en heartbeat
 
@@ -52,7 +52,7 @@ go test ./...
 
 ## Windows-klient
 
-Klienten sender én heartbeat med `active_seconds: 30` hvert 30. sekund mens den kjører i den innloggede Windows-økten. Bygg og kjør den på Windows:
+Klienten sender én heartbeat hvert 30. sekund mens den kjører i den innloggede Windows-økten. Serveren bruker timestampene, ikke `active_seconds`, til å beregne skjermtid. Bygg og kjør den på Windows:
 
 ```powershell
 go build -ldflags "-H=windowsgui" -o screengate-client.exe ./cmd/client
