@@ -9,20 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"strconv"
 	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
-
-type heartbeat struct {
-	DeviceID      string    `json:"device_id"`
-	User          string    `json:"user"`
-	ActiveSeconds int       `json:"active_seconds"`
-	ReportedAt    time.Time `json:"reported_at"`
-}
 
 type response struct {
 	Action            string `json:"action"`
@@ -46,23 +38,11 @@ type application struct {
 	adminPath string
 }
 
-type activity struct {
-	User           string
-	TotalSeconds   int
-	LastReportedAt string
-	QuotaSeconds   int
-}
-
 type dashboard struct {
 	Date       string
 	Activities []activity
 	AdminPath  string
 }
-
-const (
-	heartbeatInterval = 30 * time.Second
-	maxHeartbeatGap   = heartbeatInterval * 21 / 10
-)
 
 var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.FuncMap{
 	"duration": func(seconds int) string {
@@ -242,17 +222,6 @@ func (a *application) userPolicyVersion(user string) (int, error) {
 	return version, err
 }
 
-func screenTimeDecision(dailyTotal, quota int) (string, int) {
-	if quota <= 0 {
-		return "allow", 0
-	}
-	remaining := quota - dailyTotal
-	if remaining <= 0 {
-		return "lock", 0
-	}
-	return "allow", remaining
-}
-
 func (a *application) addHeartbeat(h heartbeat) (int, error) {
 	tx, err := a.db.Begin()
 	if err != nil {
@@ -272,19 +241,13 @@ func (a *application) addHeartbeat(h heartbeat) (int, error) {
 }
 
 func (a *application) dailyTotal(user, date string) (int, error) {
-	dayStart, err := time.ParseInLocation("2006-01-02", date, time.Local)
-	if err != nil {
-		return 0, err
-	}
-	dayEnd := dayStart.AddDate(0, 0, 1)
-
 	rows, err := a.db.Query(`SELECT device_id, reported_at FROM heartbeats WHERE user = ?`, user)
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
 
-	byDevice := make(map[string][]time.Time)
+	var heartbeats []recordedHeartbeat
 	for rows.Next() {
 		var deviceID, reportedAt string
 		if err := rows.Scan(&deviceID, &reportedAt); err != nil {
@@ -294,32 +257,13 @@ func (a *application) dailyTotal(user, date string) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		byDevice[deviceID] = append(byDevice[deviceID], timestamp)
+		heartbeats = append(heartbeats, recordedHeartbeat{deviceID: deviceID, reportedAt: timestamp})
 	}
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
 
-	total := time.Duration(0)
-	for _, timestamps := range byDevice {
-		slices.SortFunc(timestamps, func(a, b time.Time) int { return a.Compare(b) })
-		for i := 1; i < len(timestamps); i++ {
-			start, end := timestamps[i-1], timestamps[i]
-			if gap := end.Sub(start); gap <= 0 || gap > maxHeartbeatGap {
-				continue
-			}
-			if start.Before(dayStart) {
-				start = dayStart
-			}
-			if end.After(dayEnd) {
-				end = dayEnd
-			}
-			if end.After(start) {
-				total += end.Sub(start)
-			}
-		}
-	}
-	return int(total / time.Second), nil
+	return calculateDailyTotal(heartbeats, date)
 }
 
 func (a *application) todaysActivities() ([]activity, error) {
