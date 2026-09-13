@@ -12,12 +12,12 @@ import (
 
 func testApplication(t *testing.T) *application {
 	t.Helper()
-	db, err := openDatabase(filepath.Join(t.TempDir(), "test.db"))
+	repository, err := openRepository(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return newApplication(db)
+	t.Cleanup(func() { repository.close() })
+	return newApplication(repository)
 }
 
 func dailyTotalFor(t *testing.T, app *application, user, date string) int {
@@ -59,7 +59,7 @@ func TestHeartbeatUsesServerReceiveTime(t *testing.T) {
 	app.heartbeatHandler(httptest.NewRecorder(), req)
 
 	var reportedAt string
-	if err := app.db.QueryRow("SELECT reported_at FROM heartbeats WHERE user = ?", "barn1").Scan(&reportedAt); err != nil {
+	if err := app.repository.db.QueryRow("SELECT reported_at FROM heartbeats WHERE user = ?", "barn1").Scan(&reportedAt); err != nil {
 		t.Fatal(err)
 	}
 	timestamp, err := time.Parse(time.RFC3339Nano, reportedAt)
@@ -141,7 +141,7 @@ func TestHeartbeatAddsToUserTotal(t *testing.T) {
 		t.Fatalf("daily total = %d, want 60", total)
 	}
 	var heartbeatCount int
-	if err := app.db.QueryRow("SELECT COUNT(*) FROM heartbeats WHERE user = ?", "barn1").Scan(&heartbeatCount); err != nil {
+	if err := app.repository.db.QueryRow("SELECT COUNT(*) FROM heartbeats WHERE user = ?", "barn1").Scan(&heartbeatCount); err != nil {
 		t.Fatal(err)
 	}
 	if heartbeatCount != 2 {
@@ -207,7 +207,7 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 
 func TestDashboardShowsKnownUserWithoutTodaysHeartbeat(t *testing.T) {
 	app := testApplication(t)
-	if _, err := app.db.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
+	if _, err := app.repository.db.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
 		VALUES (?, ?, ?, ?, ?)`, "2026-09-08T12:00:00+02:00", "2026-09-08", "pc-barn1", "barn1", 60); err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestOverviewShowsActivityWithoutAdminControls(t *testing.T) {
 
 func TestHeartbeatLocksWhenDailyQuotaIsReached(t *testing.T) {
 	app := testApplication(t)
-	if err := app.setUserQuota("barn1", 1); err != nil {
+	if err := app.repository.setUserQuota("barn1", 1); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now().Add(-time.Minute)
@@ -282,7 +282,7 @@ func TestUserQuotaHandler(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	quota, err := app.userQuota("barn1")
+	quota, err := app.repository.userQuota("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,30 +293,30 @@ func TestUserQuotaHandler(t *testing.T) {
 
 func TestPolicyVersionIncrementsWhenQuotaChanges(t *testing.T) {
 	app := testApplication(t)
-	if err := app.setUserQuota("barn1", 3600); err != nil {
+	if err := app.repository.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
-	version, err := app.userPolicyVersion("barn1")
+	version, err := app.repository.userPolicyVersion("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if version != 1 {
 		t.Fatalf("version = %d, want 1", version)
 	}
-	if err := app.setUserQuota("barn1", 3600); err != nil {
+	if err := app.repository.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
-	version, err = app.userPolicyVersion("barn1")
+	version, err = app.repository.userPolicyVersion("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if version != 1 {
 		t.Fatalf("version = %d, want 1 after unchanged quota", version)
 	}
-	if err := app.setUserQuota("barn1", 7200); err != nil {
+	if err := app.repository.setUserQuota("barn1", 7200); err != nil {
 		t.Fatal(err)
 	}
-	version, err = app.userPolicyVersion("barn1")
+	version, err = app.repository.userPolicyVersion("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestScreenTimeDecision(t *testing.T) {
 
 func TestHeartbeatReturnsRemainingSeconds(t *testing.T) {
 	app := testApplication(t)
-	if err := app.setUserQuota("barn1", 3600); err != nil {
+	if err := app.repository.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now().Add(-52 * time.Minute)

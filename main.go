@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"html/template"
 	"log"
@@ -12,8 +11,6 @@ import (
 	"strconv"
 	"syscall"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 type response struct {
@@ -34,8 +31,8 @@ type focusEvent struct {
 }
 
 type application struct {
-	db        *sql.DB
-	adminPath string
+	repository *repository
+	adminPath  string
 }
 
 type dashboard struct {
@@ -119,147 +116,25 @@ var overviewTemplate = template.Must(template.New("overview").Funcs(template.Fun
 </body>
 </html>`))
 
-func newApplication(db *sql.DB) *application {
-	return &application{db: db, adminPath: "/admin"}
-}
-
-func openDatabase(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS heartbeats (
-		id INTEGER PRIMARY KEY,
-		reported_at TEXT NOT NULL,
-		date TEXT NOT NULL,
-		device_id TEXT NOT NULL,
-		user TEXT NOT NULL,
-		active_seconds INTEGER NOT NULL
-	)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS daily_totals (
-		user TEXT NOT NULL,
-		date TEXT NOT NULL,
-		total_seconds INTEGER NOT NULL,
-		PRIMARY KEY (user, date)
-	)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_quotas (
-		user TEXT PRIMARY KEY,
-		daily_quota_seconds INTEGER NOT NULL
-	)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_policy_versions (
-		user TEXT PRIMARY KEY,
-		policy_version INTEGER NOT NULL
-	)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO user_policy_versions (user, policy_version)
-		SELECT user, 1 FROM user_quotas`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
+func newApplication(repository *repository) *application {
+	return &application{repository: repository, adminPath: "/admin"}
 }
 
 func today() string {
 	return time.Now().Format("2006-01-02")
 }
 
-func (a *application) userQuota(user string) (int, error) {
-	var quota int
-	err := a.db.QueryRow("SELECT daily_quota_seconds FROM user_quotas WHERE user = ?", user).Scan(&quota)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return quota, err
-}
-
-func (a *application) setUserQuota(user string, quota int) error {
-	tx, err := a.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var currentQuota int
-	err = tx.QueryRow("SELECT daily_quota_seconds FROM user_quotas WHERE user = ?", user).Scan(&currentQuota)
-	if err == sql.ErrNoRows {
-		if _, err := tx.Exec("INSERT INTO user_quotas (user, daily_quota_seconds) VALUES (?, ?)", user, quota); err != nil {
-			return err
-		}
-		if _, err := tx.Exec("INSERT INTO user_policy_versions (user, policy_version) VALUES (?, 1)", user); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else if currentQuota != quota {
-		if _, err := tx.Exec("UPDATE user_quotas SET daily_quota_seconds = ? WHERE user = ?", quota, user); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`INSERT INTO user_policy_versions (user, policy_version) VALUES (?, 1)
-			ON CONFLICT(user) DO UPDATE SET policy_version = policy_version + 1`, user); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func (a *application) userPolicyVersion(user string) (int, error) {
-	var version int
-	err := a.db.QueryRow("SELECT policy_version FROM user_policy_versions WHERE user = ?", user).Scan(&version)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return version, err
-}
-
 func (a *application) addHeartbeat(h heartbeat) (int, error) {
-	tx, err := a.db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-
 	date := h.ReportedAt.In(time.Local).Format("2006-01-02")
-	if _, err := tx.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
-		VALUES (?, ?, ?, ?, ?)`, h.ReportedAt.Format(time.RFC3339Nano), date, h.DeviceID, h.User, h.ActiveSeconds); err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
+	if err := a.repository.addHeartbeat(h); err != nil {
 		return 0, err
 	}
 	return a.dailyTotal(h.User, date)
 }
 
 func (a *application) dailyTotal(user, date string) (int, error) {
-	rows, err := a.db.Query(`SELECT device_id, reported_at FROM heartbeats WHERE user = ?`, user)
+	heartbeats, err := a.repository.heartbeatsForUser(user)
 	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-
-	var heartbeats []recordedHeartbeat
-	for rows.Next() {
-		var deviceID, reportedAt string
-		if err := rows.Scan(&deviceID, &reportedAt); err != nil {
-			return 0, err
-		}
-		timestamp, err := time.Parse(time.RFC3339Nano, reportedAt)
-		if err != nil {
-			return 0, err
-		}
-		heartbeats = append(heartbeats, recordedHeartbeat{deviceID: deviceID, reportedAt: timestamp})
-	}
-	if err := rows.Err(); err != nil {
 		return 0, err
 	}
 
@@ -268,36 +143,16 @@ func (a *application) dailyTotal(user, date string) (int, error) {
 
 func (a *application) todaysActivities() ([]activity, error) {
 	date := today()
-	rows, err := a.db.Query(`WITH known_users AS (
-			SELECT user FROM heartbeats
-			UNION
-			SELECT user FROM user_quotas
-		)
-		SELECT u.user, COALESCE(MAX(h.reported_at), ''), COALESCE(q.daily_quota_seconds, 0)
-		FROM known_users u
-		LEFT JOIN heartbeats h ON h.user = u.user
-		LEFT JOIN user_quotas q ON q.user = u.user
-		GROUP BY u.user, q.daily_quota_seconds
-		ORDER BY u.user`)
+	activities, err := a.repository.activities()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var activities []activity
-	for rows.Next() {
-		var item activity
-		if err := rows.Scan(&item.User, &item.LastReportedAt, &item.QuotaSeconds); err != nil {
-			return nil, err
-		}
+	for i := range activities {
+		item := &activities[i]
 		item.TotalSeconds, err = a.dailyTotal(item.User, date)
 		if err != nil {
 			return nil, err
 		}
-		activities = append(activities, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	return activities, nil
 }
@@ -354,7 +209,7 @@ func (a *application) userQuotaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	quota := hours*60*60 + minutes*60
-	if err := a.setUserQuota(user, quota); err != nil {
+	if err := a.repository.setUserQuota(user, quota); err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
@@ -423,13 +278,13 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("database error: %v", err)
 		} else {
-			quota, quotaErr := a.userQuota(h.User)
+			quota, quotaErr := a.repository.userQuota(h.User)
 			if quotaErr != nil {
 				log.Printf("database error: %v", quotaErr)
 			} else {
 				action, remainingSeconds = screenTimeDecision(dailyTotal, quota)
 			}
-			policyVersion, err = a.userPolicyVersion(h.User)
+			policyVersion, err = a.repository.userPolicyVersion(h.User)
 			if err != nil {
 				log.Printf("database error: %v", err)
 				policyVersion = 0
@@ -447,13 +302,13 @@ func main() {
 	if databasePath == "" {
 		databasePath = "screengate.db"
 	}
-	db, err := openDatabase(databasePath)
+	repository, err := openRepository(databasePath)
 	if err != nil {
 		log.Fatalf("database error: %v", err)
 	}
-	defer db.Close()
+	defer repository.close()
 
-	app := newApplication(db)
+	app := newApplication(repository)
 	if adminPath := os.Getenv("ADMIN_PATH"); adminPath != "" && adminPath[0] == '/' {
 		app.adminPath = adminPath
 	}
