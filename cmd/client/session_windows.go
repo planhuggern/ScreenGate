@@ -11,6 +11,7 @@ import (
 const (
 	wmWTSSessionChange = 0x02B1
 	wtsSessionLogon    = 0x5
+	wtsSessionLock     = 0x7
 	wtsSessionUnlock   = 0x8
 	notifyThisSession  = 0
 )
@@ -68,6 +69,8 @@ func startSessionEvents() <-chan string {
 				switch message.WParam {
 				case wtsSessionLogon:
 					event = "logon"
+				case wtsSessionLock:
+					event = "lock"
 				case wtsSessionUnlock:
 					event = "unlock"
 				}

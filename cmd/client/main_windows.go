@@ -163,6 +163,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	lastStatus := ""
+	sessionLocked := false
 	state := blockedState{}
 	warnings := warningState{}
 	tracker := focusTracker{}
@@ -222,6 +223,12 @@ func main() {
 				sessionEvents = nil
 				continue
 			}
+			if sessionEvent == "lock" {
+				sessionLocked = true
+				log.Printf("session_event=lock heartbeats_paused=true")
+				continue
+			}
+			sessionLocked = false
 			wasBlocked := state.blocked
 			action, err := applyHeartbeat()
 			if err != nil {
@@ -237,6 +244,9 @@ func main() {
 				lockWorkStation.Call()
 			}
 		case <-report.C:
+			if sessionLocked {
+				continue
+			}
 			action, err := applyHeartbeat()
 			if err != nil {
 				if lastStatus != "unreachable" {
