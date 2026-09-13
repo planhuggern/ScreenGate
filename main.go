@@ -31,8 +31,8 @@ type focusEvent struct {
 }
 
 type application struct {
-	repository *repository
-	adminPath  string
+	service   *screenTimeService
+	adminPath string
 }
 
 type dashboard struct {
@@ -117,44 +117,7 @@ var overviewTemplate = template.Must(template.New("overview").Funcs(template.Fun
 </html>`))
 
 func newApplication(repository *repository) *application {
-	return &application{repository: repository, adminPath: "/admin"}
-}
-
-func today() string {
-	return time.Now().Format("2006-01-02")
-}
-
-func (a *application) addHeartbeat(h heartbeat) (int, error) {
-	date := h.ReportedAt.In(time.Local).Format("2006-01-02")
-	if err := a.repository.addHeartbeat(h); err != nil {
-		return 0, err
-	}
-	return a.dailyTotal(h.User, date)
-}
-
-func (a *application) dailyTotal(user, date string) (int, error) {
-	heartbeats, err := a.repository.heartbeatsForUser(user)
-	if err != nil {
-		return 0, err
-	}
-
-	return calculateDailyTotal(heartbeats, date)
-}
-
-func (a *application) todaysActivities() ([]activity, error) {
-	date := today()
-	activities, err := a.repository.activities()
-	if err != nil {
-		return nil, err
-	}
-	for i := range activities {
-		item := &activities[i]
-		item.TotalSeconds, err = a.dailyTotal(item.User, date)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return activities, nil
+	return &application{service: newScreenTimeService(repository), adminPath: "/admin"}
 }
 
 func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +126,7 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activities, err := a.todaysActivities()
+	activities, err := a.service.todaysActivities()
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
@@ -181,7 +144,7 @@ func (a *application) overviewHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activities, err := a.todaysActivities()
+	activities, err := a.service.todaysActivities()
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
@@ -209,7 +172,7 @@ func (a *application) userQuotaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	quota := hours*60*60 + minutes*60
-	if err := a.repository.setUserQuota(user, quota); err != nil {
+	if err := a.service.setUserQuota(user, quota); err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
@@ -263,38 +226,26 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var h heartbeat
-	var dailyTotal int
-	var policyVersion int
-	var remainingSeconds int
 	action := "allow"
 	if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
 		log.Printf("invalid heartbeat: %v", err)
 	} else if h.DeviceID == "" || h.User == "" || h.ActiveSeconds < 0 {
 		log.Printf("invalid heartbeat: device_id and user must not be empty, and active_seconds must not be negative")
 	} else {
-		var err error
-		h.ReportedAt = time.Now()
-		dailyTotal, err = a.addHeartbeat(h)
+		result, err := a.service.recordHeartbeat(h)
 		if err != nil {
 			log.Printf("database error: %v", err)
 		} else {
-			quota, quotaErr := a.repository.userQuota(h.User)
-			if quotaErr != nil {
-				log.Printf("database error: %v", quotaErr)
-			} else {
-				action, remainingSeconds = screenTimeDecision(dailyTotal, quota)
-			}
-			policyVersion, err = a.repository.userPolicyVersion(h.User)
-			if err != nil {
-				log.Printf("database error: %v", err)
-				policyVersion = 0
-			}
-			log.Printf("reported_at=%s device_id=%s user=%s active_seconds=%d daily_total_seconds=%d", h.ReportedAt.Format(time.RFC3339), h.DeviceID, h.User, h.ActiveSeconds, dailyTotal)
+			action = result.Action
+			log.Printf("reported_at=%s device_id=%s user=%s active_seconds=%d daily_total_seconds=%d", result.ReportedAt.Format(time.RFC3339), h.DeviceID, h.User, h.ActiveSeconds, result.DailyTotalSeconds)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response{Action: action, Message: "ok", DailyTotalSeconds: result.DailyTotalSeconds, PolicyVersion: result.PolicyVersion, RemainingSeconds: result.RemainingSeconds})
+			return
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response{Action: action, Message: "ok", DailyTotalSeconds: dailyTotal, PolicyVersion: policyVersion, RemainingSeconds: remainingSeconds})
+	json.NewEncoder(w).Encode(response{Action: action, Message: "ok"})
 }
 
 func main() {

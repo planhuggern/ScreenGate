@@ -22,7 +22,7 @@ func testApplication(t *testing.T) *application {
 
 func dailyTotalFor(t *testing.T, app *application, user, date string) int {
 	t.Helper()
-	total, err := app.dailyTotal(user, date)
+	total, err := app.service.dailyTotal(user, date)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestHeartbeatUsesServerReceiveTime(t *testing.T) {
 	app.heartbeatHandler(httptest.NewRecorder(), req)
 
 	var reportedAt string
-	if err := app.repository.db.QueryRow("SELECT reported_at FROM heartbeats WHERE user = ?", "barn1").Scan(&reportedAt); err != nil {
+	if err := app.service.repository.db.QueryRow("SELECT reported_at FROM heartbeats WHERE user = ?", "barn1").Scan(&reportedAt); err != nil {
 		t.Fatal(err)
 	}
 	timestamp, err := time.Parse(time.RFC3339Nano, reportedAt)
@@ -132,7 +132,7 @@ func TestHeartbeatAddsToUserTotal(t *testing.T) {
 	app := testApplication(t)
 	start := time.Now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
-		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -141,7 +141,7 @@ func TestHeartbeatAddsToUserTotal(t *testing.T) {
 		t.Fatalf("daily total = %d, want 60", total)
 	}
 	var heartbeatCount int
-	if err := app.repository.db.QueryRow("SELECT COUNT(*) FROM heartbeats WHERE user = ?", "barn1").Scan(&heartbeatCount); err != nil {
+	if err := app.service.repository.db.QueryRow("SELECT COUNT(*) FROM heartbeats WHERE user = ?", "barn1").Scan(&heartbeatCount); err != nil {
 		t.Fatal(err)
 	}
 	if heartbeatCount != 2 {
@@ -156,7 +156,7 @@ func TestDailyTotalUsesContinuousHeartbeatIntervals(t *testing.T) {
 		time.Date(2026, time.September, 9, 12, 1, 3, 0, time.Local),
 		time.Date(2026, time.September, 9, 12, 2, 7, 0, time.Local),
 	} {
-		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -172,7 +172,7 @@ func TestDailyTotalSplitsHeartbeatIntervalAtMidnight(t *testing.T) {
 		time.Date(2026, time.September, 8, 23, 59, 40, 0, time.Local),
 		time.Date(2026, time.September, 9, 0, 0, 10, 0, time.Local),
 	} {
-		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -189,7 +189,7 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 	app := testApplication(t)
 	start := time.Now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
-		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -207,7 +207,7 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 
 func TestDashboardShowsKnownUserWithoutTodaysHeartbeat(t *testing.T) {
 	app := testApplication(t)
-	if _, err := app.repository.db.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
+	if _, err := app.service.repository.db.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
 		VALUES (?, ?, ?, ?, ?)`, "2026-09-08T12:00:00+02:00", "2026-09-08", "pc-barn1", "barn1", 60); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestOverviewShowsActivityWithoutAdminControls(t *testing.T) {
 	app := testApplication(t)
 	start := time.Now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
-		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -247,11 +247,11 @@ func TestOverviewShowsActivityWithoutAdminControls(t *testing.T) {
 
 func TestHeartbeatLocksWhenDailyQuotaIsReached(t *testing.T) {
 	app := testApplication(t)
-	if err := app.repository.setUserQuota("barn1", 1); err != nil {
+	if err := app.service.setUserQuota("barn1", 1); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now().Add(-time.Minute)
-	if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start}); err != nil {
+	if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start}); err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":60,"reported_at":"`+start.Add(time.Minute).Format(time.RFC3339Nano)+`"}`))
@@ -282,7 +282,7 @@ func TestUserQuotaHandler(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	quota, err := app.repository.userQuota("barn1")
+	quota, err := app.service.repository.userQuota("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,30 +293,30 @@ func TestUserQuotaHandler(t *testing.T) {
 
 func TestPolicyVersionIncrementsWhenQuotaChanges(t *testing.T) {
 	app := testApplication(t)
-	if err := app.repository.setUserQuota("barn1", 3600); err != nil {
+	if err := app.service.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
-	version, err := app.repository.userPolicyVersion("barn1")
+	version, err := app.service.repository.userPolicyVersion("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if version != 1 {
 		t.Fatalf("version = %d, want 1", version)
 	}
-	if err := app.repository.setUserQuota("barn1", 3600); err != nil {
+	if err := app.service.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
-	version, err = app.repository.userPolicyVersion("barn1")
+	version, err = app.service.repository.userPolicyVersion("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if version != 1 {
 		t.Fatalf("version = %d, want 1 after unchanged quota", version)
 	}
-	if err := app.repository.setUserQuota("barn1", 7200); err != nil {
+	if err := app.service.setUserQuota("barn1", 7200); err != nil {
 		t.Fatal(err)
 	}
-	version, err = app.repository.userPolicyVersion("barn1")
+	version, err = app.service.repository.userPolicyVersion("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,12 +354,12 @@ func TestScreenTimeDecision(t *testing.T) {
 
 func TestHeartbeatReturnsRemainingSeconds(t *testing.T) {
 	app := testApplication(t)
-	if err := app.repository.setUserQuota("barn1", 3600); err != nil {
+	if err := app.service.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now().Add(-52 * time.Minute)
 	for i := 0; i < 52; i++ {
-		if _, err := app.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start.Add(time.Duration(i) * time.Minute)}); err != nil {
+		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start.Add(time.Duration(i) * time.Minute)}); err != nil {
 			t.Fatal(err)
 		}
 	}
