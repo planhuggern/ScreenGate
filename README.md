@@ -50,6 +50,12 @@ Respons:
 go test ./...
 ```
 
+Etter hver kodeendring skal Docker-imaget også verifiseres:
+
+```sh
+docker build .
+```
+
 ## Windows-klient
 
 Klienten sender én heartbeat hvert 30. sekund mens den kjører i den innloggede Windows-økten. Serveren bruker timestampene, ikke `active_seconds`, til å beregne skjermtid. Bygg og kjør den på Windows:

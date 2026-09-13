@@ -2,7 +2,7 @@ FROM golang:1.25-alpine AS build
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
-COPY main.go ./
+COPY *.go ./
 COPY cmd/client ./cmd/client
 RUN go build -o screengate .
 RUN GOOS=windows GOARCH=amd64 go build -ldflags="-H=windowsgui" -o screengate-client.exe ./cmd/client
