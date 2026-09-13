@@ -3,6 +3,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
+COPY templates ./templates
 COPY cmd/client ./cmd/client
 RUN go build -o screengate .
 RUN GOOS=windows GOARCH=amd64 go build -ldflags="-H=windowsgui" -o screengate-client.exe ./cmd/client

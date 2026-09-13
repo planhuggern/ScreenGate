@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -34,87 +33,6 @@ type application struct {
 	service   *screenTimeService
 	adminPath string
 }
-
-type dashboard struct {
-	Date       string
-	Activities []activity
-	AdminPath  string
-}
-
-var dashboardTemplate = template.Must(template.New("dashboard").Funcs(template.FuncMap{
-	"duration": func(seconds int) string {
-		return (time.Duration(seconds) * time.Second).String()
-	},
-	"hours": func(seconds int) int {
-		return seconds / 3600
-	},
-	"minutes": func(seconds int) int {
-		return seconds % 3600 / 60
-	},
-	"quota": func(seconds int) string {
-		if seconds == 0 {
-			return "Ubegrenset"
-		}
-		return (time.Duration(seconds) * time.Second).String()
-	},
-}).Parse(`<!doctype html>
-<html lang="no">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ScreenGate</title>
-  <style>body{font-family:system-ui,sans-serif;max-width:820px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}input{width:4rem}</style>
-</head>
-<body>
-  <h1>ScreenGate</h1>
-  <p><a href="{{.AdminPath}}/downloads/install.ps1"><button>Last ned installasjon for Windows</button></a></p>
-  <p>Kjør deretter i PowerShell som administrator:</p>
-  <code>powershell -ExecutionPolicy Bypass -File .\install.ps1</code>
-  <p>Skriptet viser en liste over Windows-brukere. Velg brukeren som skal kjøre klienten.</p>
-  <h3>Avinstaller</h3>
-  <p>Kjør dette i PowerShell som administrator for å fjerne oppstartsoppgaven og klientfilene:</p>
-  <code>Unregister-ScheduledTask -TaskName "ScreenGate Client" -Confirm:$false; Remove-Item "C:\Program Files\ScreenGate" -Recurse -Force</code>
-  <h2>Aktivitet {{.Date}}</h2>
-  {{if .Activities}}
-  <table>
-    <tr><th>Bruker</th><th>Brukt i dag</th><th>Maks per dag</th><th>Sist rapportert</th></tr>
-    {{range .Activities}}<tr><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>
-      <form method="post" action="{{$.AdminPath}}/user-quota"><input type="hidden" name="user" value="{{.User}}"><input type="number" name="hours" min="0" value="{{hours .QuotaSeconds}}"> t <input type="number" name="minutes" min="0" max="59" value="{{minutes .QuotaSeconds}}"> min <button>Lagre</button><br><small>{{quota .QuotaSeconds}}</small></form>
-    </td><td>{{.LastReportedAt}}</td></tr>{{end}}
-  </table>
-  {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
-</body>
-</html>`))
-
-var overviewTemplate = template.Must(template.New("overview").Funcs(template.FuncMap{
-	"duration": func(seconds int) string {
-		return (time.Duration(seconds) * time.Second).String()
-	},
-	"quota": func(seconds int) string {
-		if seconds == 0 {
-			return "Ubegrenset"
-		}
-		return (time.Duration(seconds) * time.Second).String()
-	},
-}).Parse(`<!doctype html>
-<html lang="no">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ScreenGate</title>
-  <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}</style>
-</head>
-<body>
-  <h1>ScreenGate</h1>
-  <h2>Aktivitet {{.Date}}</h2>
-  {{if .Activities}}
-  <table>
-    <tr><th>Bruker</th><th>Brukt i dag</th><th>Maks per dag</th><th>Sist rapportert</th></tr>
-    {{range .Activities}}<tr><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>{{quota .QuotaSeconds}}</td><td>{{.LastReportedAt}}</td></tr>{{end}}
-  </table>
-  {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
-</body>
-</html>`))
 
 func newApplication(repository *repository) *application {
 	return &application{service: newScreenTimeService(repository), adminPath: "/admin"}

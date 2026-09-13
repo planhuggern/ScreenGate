@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScreenGate</title>
+  <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}</style>
+</head>
+<body>
+  <h1>ScreenGate</h1>
+  <h2>Aktivitet {{.Date}}</h2>
+  {{if .Activities}}
+  <table>
+    <tr><th>Bruker</th><th>Brukt i dag</th><th>Maks per dag</th><th>Sist rapportert</th></tr>
+    {{range .Activities}}<tr><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>{{quota .QuotaSeconds}}</td><td>{{.LastReportedAt}}</td></tr>{{end}}
+  </table>
+  {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
+</body>
+</html>
