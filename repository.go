@@ -2,7 +2,11 @@ package main
 
 import (
 	"database/sql"
+	"embed"
 	"time"
+
+	"github.com/pressly/goose/v3"
+	_ "screengate/migrations"
 
 	_ "modernc.org/sqlite"
 )
@@ -11,47 +15,20 @@ type repository struct {
 	db *sql.DB
 }
 
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
 func openRepository(path string) (*repository, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS heartbeats (
-		id INTEGER PRIMARY KEY,
-		reported_at TEXT NOT NULL,
-		date TEXT NOT NULL,
-		device_id TEXT NOT NULL,
-		user TEXT NOT NULL,
-		active_seconds INTEGER NOT NULL
-	)`); err != nil {
+	goose.SetBaseFS(migrationFiles)
+	if err := goose.SetDialect("sqlite3"); err != nil {
 		db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS daily_totals (
-		user TEXT NOT NULL,
-		date TEXT NOT NULL,
-		total_seconds INTEGER NOT NULL,
-		PRIMARY KEY (user, date)
-	)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_quotas (
-		user TEXT PRIMARY KEY,
-		daily_quota_seconds INTEGER NOT NULL
-	)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_policy_versions (
-		user TEXT PRIMARY KEY,
-		policy_version INTEGER NOT NULL
-	)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO user_policy_versions (user, policy_version)
-		SELECT user, 1 FROM user_quotas`); err != nil {
+	if err := goose.Up(db, "migrations"); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -111,9 +88,8 @@ func (r *repository) userPolicyVersion(user string) (int, error) {
 }
 
 func (r *repository) addHeartbeat(h heartbeat) error {
-	date := h.ReportedAt.In(time.Local).Format("2006-01-02")
-	_, err := r.db.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
-		VALUES (?, ?, ?, ?, ?)`, h.ReportedAt.Format(time.RFC3339Nano), date, h.DeviceID, h.User, h.ActiveSeconds)
+	_, err := r.db.Exec(`INSERT INTO heartbeats (reported_at, device_id, user)
+		VALUES (?, ?, ?)`, h.ReportedAt.Format(time.RFC3339Nano), h.DeviceID, h.User)
 	return err
 }
 

@@ -207,8 +207,8 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 
 func TestDashboardShowsKnownUserWithoutTodaysHeartbeat(t *testing.T) {
 	app := testApplication(t)
-	if _, err := app.service.repository.db.Exec(`INSERT INTO heartbeats (reported_at, date, device_id, user, active_seconds)
-		VALUES (?, ?, ?, ?, ?)`, "2026-09-08T12:00:00+02:00", "2026-09-08", "pc-barn1", "barn1", 60); err != nil {
+	if _, err := app.service.repository.db.Exec(`INSERT INTO heartbeats (reported_at, device_id, user)
+		VALUES (?, ?, ?)`, "2026-09-08T12:00:00+02:00", "pc-barn1", "barn1"); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()

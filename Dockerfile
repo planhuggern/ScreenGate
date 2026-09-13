@@ -3,6 +3,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
+COPY migrations ./migrations
 COPY templates ./templates
 COPY cmd/client ./cmd/client
 RUN go build -o screengate .
