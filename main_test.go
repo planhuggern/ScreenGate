@@ -17,7 +17,9 @@ func testApplication(t *testing.T) *application {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { repository.close() })
-	return newApplication(repository)
+	app := newApplication(repository)
+	app.service.now = func() time.Time { return time.Date(2026, 9, 18, 12, 0, 0, 0, time.Local) }
+	return app
 }
 
 func dailyTotalFor(t *testing.T, app *application, user, date string) int {
@@ -46,13 +48,14 @@ func TestHeartbeat(t *testing.T) {
 	if got.Action != "allow" || got.Message != "ok" || !got.Unlimited || got.LeaseSeconds != 90 || got.ServerTime.IsZero() {
 		t.Fatalf("response = %#v", got)
 	}
-	if total := dailyTotalFor(t, app, "barn1", today()); total != 0 {
+	if total := dailyTotalFor(t, app, "barn1", app.service.today()); total != 0 {
 		t.Fatalf("daily total = %d, want 0", total)
 	}
 }
 
 func TestHeartbeatUsesServerReceiveTime(t *testing.T) {
 	app := testApplication(t)
+	app.service.now = time.Now
 	receivedAfter := time.Now()
 	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":0,"reported_at":"2000-01-01T00:00:00Z"}`))
 
@@ -130,14 +133,14 @@ func TestEventRejectsInvalidInput(t *testing.T) {
 
 func TestHeartbeatAddsToUserTotal(t *testing.T) {
 	app := testApplication(t)
-	start := time.Now().Add(-time.Minute)
+	start := app.service.now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
 		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	if total := dailyTotalFor(t, app, "barn1", today()); total != 60 {
+	if total := dailyTotalFor(t, app, "barn1", app.service.today()); total != 60 {
 		t.Fatalf("daily total = %d, want 60", total)
 	}
 	var heartbeatCount int
@@ -187,7 +190,7 @@ func TestDailyTotalSplitsHeartbeatIntervalAtMidnight(t *testing.T) {
 
 func TestDashboardShowsTodaysActivity(t *testing.T) {
 	app := testApplication(t)
-	start := time.Now().Add(-time.Minute)
+	start := app.service.now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
 		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
@@ -226,7 +229,7 @@ func TestDashboardShowsKnownUserWithoutTodaysHeartbeat(t *testing.T) {
 
 func TestOverviewDoesNotExposeActivityOrAdminControls(t *testing.T) {
 	app := testApplication(t)
-	start := time.Now().Add(-time.Minute)
+	start := app.service.now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
 		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
@@ -250,7 +253,7 @@ func TestHeartbeatLocksWhenDailyQuotaIsReached(t *testing.T) {
 	if err := app.service.setUserQuota("barn1", 1); err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now().Add(-time.Minute)
+	start := app.service.now().Add(-time.Minute)
 	if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start}); err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +360,7 @@ func TestHeartbeatReturnsRemainingSeconds(t *testing.T) {
 	if err := app.service.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now().Add(-52 * time.Minute)
+	start := app.service.now().Add(-52 * time.Minute)
 	for i := 0; i < 52; i++ {
 		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start.Add(time.Duration(i) * time.Minute)}); err != nil {
 			t.Fatal(err)

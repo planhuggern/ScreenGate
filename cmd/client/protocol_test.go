@@ -29,6 +29,7 @@ func TestHeartbeatProtocolRejectsInvalidAuthorization(t *testing.T) {
 		{"negative quota", 200, "application/json", `{"action":"allow","lease_seconds":90,"quota_seconds":-1}`},
 		{"negative version", 200, "application/json", `{"action":"allow","lease_seconds":90,"policy_version":-1}`},
 		{"oversized", 200, "application/json", `{"action":"allow","lease_seconds":90,"message":"` + strings.Repeat("x", 20*1024) + `"}`},
+		{"oversized whitespace", 200, "application/json", `{"action":"allow","lease_seconds":90}` + strings.Repeat(" ", 20*1024)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

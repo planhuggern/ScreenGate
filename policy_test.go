@@ -118,3 +118,21 @@ func TestValidateWeekdayPolicies(t *testing.T) {
 		t.Fatal("accepted duplicate weekdays")
 	}
 }
+
+func TestPlannedLockWarningsDistinguishBedtimeFromQuotaReset(t *testing.T) {
+	now := time.Date(2026, 9, 18, 19, 50, 0, 0, time.UTC)
+	p := userPolicy{DailyQuotaSeconds: 3600, Weekdays: []weekdayPolicy{{Weekday: 5, Configured: true, StartMinute: 8 * 60, EndMinute: 20 * 60}}}
+	d := evaluatePolicy(p, 0, now)
+	if !d.NextLockAt.Equal(now.Add(10 * time.Minute)) {
+		t.Fatalf("bedtime lock=%s", d.NextLockAt)
+	}
+	d = evaluatePolicy(userPolicy{DailyQuotaSeconds: 3600}, 0, now)
+	if !d.NextLockAt.IsZero() {
+		t.Fatal("normal midnight reset should not warn about locking")
+	}
+	p = userPolicy{Weekdays: []weekdayPolicy{{Weekday: 6, Configured: true, Disabled: true, EndMinute: 1440}}}
+	d = evaluatePolicy(p, 0, now)
+	if !d.NextLockAt.Equal(nextLocalMidnight(now)) {
+		t.Fatal("tomorrow's disabled day should warn at midnight")
+	}
+}

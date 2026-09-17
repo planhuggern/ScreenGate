@@ -37,6 +37,7 @@ type policyDecision struct {
 	Unlimited        bool
 	NextAllowedAt    time.Time
 	NextTransitionAt time.Time
+	NextLockAt       time.Time
 	LeaseSeconds     int
 }
 
@@ -145,6 +146,9 @@ func evaluatePolicy(p userPolicy, total int, now time.Time) policyDecision {
 			d.LeaseSeconds = min(d.LeaseSeconds, d.RemainingSeconds)
 		}
 		d.LeaseSeconds = min(d.LeaseSeconds, max(0, int(d.NextTransitionAt.Sub(now)/time.Second)))
+		if !p.scheduleAllows(d.NextTransitionAt) {
+			d.NextLockAt = d.NextTransitionAt
+		}
 	}
 	return d
 }

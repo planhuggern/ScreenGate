@@ -243,7 +243,7 @@ func main() {
 			sendHeartbeat()
 		}
 		persist()
-		if warning, _ := warnings.observe(state.PolicyVersion, state.RemainingSeconds); warning != nil && state.Action == "allow" && sessionState == "active" {
+		if warning, _ := warnings.observe(state.PolicyVersion, state.warningRemaining(now)); warning != nil && state.Action == "allow" && sessionState == "active" {
 			if err := showWarning(*warning); err != nil {
 				log.Printf("warning error: %v", err)
 			}
@@ -297,7 +297,7 @@ func main() {
 					log.Printf("server_action=%s reason=%s remaining_seconds=%d", state.Action, state.Reason, state.RemainingSeconds)
 					lastStatus = status
 				}
-				if warning, changed := warnings.observe(state.PolicyVersion, state.RemainingSeconds); warning != nil && state.Action == "allow" && sessionState == "active" {
+				if warning, changed := warnings.observe(state.PolicyVersion, state.warningRemaining(now)); warning != nil && state.Action == "allow" && sessionState == "active" {
 					if err := showWarning(*warning); err != nil {
 						log.Printf("warning error: %v", err)
 					}

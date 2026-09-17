@@ -54,7 +54,8 @@ Eksempel på tillatelse:
   "server_time":"2026-09-18T15:00:00+02:00",
   "policy_date":"2026-09-18",
   "next_allowed_at":"0001-01-01T00:00:00Z",
-  "next_transition_at":"2026-09-19T00:00:00+02:00"
+  "next_transition_at":"2026-09-19T00:00:00+02:00",
+  "next_lock_at":"0001-01-01T00:00:00Z"
 }
 ```
 
@@ -67,6 +68,8 @@ Klienten må avslutte tillatelsen ved det tidligste av:
 3. Neste regelendring i `next_transition_at`.
 
 Ukjent tidspunkt angis med Go sin nulltid (`0001-01-01T00:00:00Z`). Ikke bruk denne som en faktisk planlagt åpning. Ved `lock` er tillatelsen null sekunder; `next_allowed_at` kan forklare neste planlagte åpning. Manuell pause har ingen automatisk åpning.
+
+`next_lock_at` angir når tidsplanen vil stenge tilgangen. Klienten bruker dette til varsler også når dagskvoten er ubegrenset. En vanlig nullstilling av kvoten ved midnatt gir ikke et låsevarsel.
 
 En rapport med samme ID belastes bare én gang. Serveren beregner likevel en ny beslutning fra gjeldende regler, slik at et nytt pausevedtak ikke skjules av en eldre rapport.
 

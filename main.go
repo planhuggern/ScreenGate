@@ -35,6 +35,7 @@ type response struct {
 	PolicyDate        string    `json:"policy_date"`
 	NextAllowedAt     time.Time `json:"next_allowed_at,omitempty"`
 	NextTransitionAt  time.Time `json:"next_transition_at,omitempty"`
+	NextLockAt        time.Time `json:"next_lock_at,omitempty"`
 }
 
 type focusEvent struct {
@@ -294,7 +295,7 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.recordDeviceSeen(r, result.ReportedAt)
-	writeJSON(w, http.StatusOK, response{Action: result.Action, Message: "ok", DailyTotalSeconds: result.DailyTotalSeconds, PolicyVersion: result.PolicyVersion, RemainingSeconds: result.RemainingSeconds, QuotaSeconds: result.QuotaSeconds, Unlimited: result.Unlimited, LeaseSeconds: result.LeaseSeconds, Reason: result.Reason, ServerTime: result.ServerTime, PolicyDate: result.PolicyDate, NextAllowedAt: result.NextAllowedAt, NextTransitionAt: result.NextTransitionAt})
+	writeJSON(w, http.StatusOK, response{Action: result.Action, Message: "ok", DailyTotalSeconds: result.DailyTotalSeconds, PolicyVersion: result.PolicyVersion, RemainingSeconds: result.RemainingSeconds, QuotaSeconds: result.QuotaSeconds, Unlimited: result.Unlimited, LeaseSeconds: result.LeaseSeconds, Reason: result.Reason, ServerTime: result.ServerTime, PolicyDate: result.PolicyDate, NextAllowedAt: result.NextAllowedAt, NextTransitionAt: result.NextTransitionAt, NextLockAt: result.NextLockAt})
 }
 
 func (a *application) healthHandler(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ type heartbeatResult struct {
 	Unlimited         bool
 	NextAllowedAt     time.Time
 	NextTransitionAt  time.Time
+	NextLockAt        time.Time
 	LeaseSeconds      int
 	ServerTime        time.Time
 	PolicyDate        string
@@ -73,6 +74,7 @@ func (s *screenTimeService) recordHeartbeat(h heartbeat) (heartbeatResult, error
 		Unlimited:         decision.Unlimited,
 		NextAllowedAt:     decision.NextAllowedAt,
 		NextTransitionAt:  decision.NextTransitionAt,
+		NextLockAt:        decision.NextLockAt,
 		LeaseSeconds:      decision.LeaseSeconds,
 		ServerTime:        h.ReportedAt,
 		PolicyDate:        date,

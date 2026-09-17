@@ -26,6 +26,7 @@ type clientState struct {
 	QuotaSeconds     int        `json:"quota_seconds"`
 	RemainingSeconds int        `json:"remaining_seconds"`
 	LeaseExpiresAt   time.Time  `json:"lease_expires_at"`
+	ScheduledLockAt  time.Time  `json:"scheduled_lock_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 	PendingSeconds   int        `json:"pending_seconds"`
 	PendingDate      string     `json:"pending_date,omitempty"`
@@ -53,6 +54,17 @@ func (s *clientState) invalidate(reason string) {
 	s.Action = "lock"
 	s.Reason = reason
 	s.LeaseExpiresAt = time.Time{}
+}
+
+func (s clientState) warningRemaining(now time.Time) int {
+	remaining := s.RemainingSeconds
+	if s.QuotaSeconds == 0 {
+		remaining = 86400
+	}
+	if !s.ScheduledLockAt.IsZero() {
+		remaining = min(remaining, max(0, int(s.ScheduledLockAt.Sub(now)/time.Second)))
+	}
+	return remaining
 }
 
 func (s *clientState) account(seconds int, now time.Time) {
@@ -101,6 +113,10 @@ func (s *clientState) apply(result response, sentAt, receivedAt time.Time) {
 		s.RemainingSeconds = max(0, s.RemainingSeconds-s.PendingSeconds)
 	}
 	s.UpdatedAt = receivedAt
+	s.ScheduledLockAt = time.Time{}
+	if !result.NextLockAt.IsZero() && !result.ServerTime.IsZero() {
+		s.ScheduledLockAt = sentAt.Add(result.NextLockAt.Sub(result.ServerTime))
+	}
 	lease := min(result.LeaseSeconds, maxLeaseSeconds)
 	if result.QuotaSeconds > 0 {
 		lease = min(lease, s.RemainingSeconds)

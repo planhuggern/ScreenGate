@@ -33,6 +33,7 @@ type response struct {
 	ServerTime       time.Time `json:"server_time"`
 	PolicyDate       string    `json:"policy_date"`
 	NextTransitionAt time.Time `json:"next_transition_at"`
+	NextLockAt       time.Time `json:"next_lock_at"`
 }
 
 type focusEvent struct {
@@ -105,7 +106,14 @@ func postHeartbeat(ctx context.Context, client *http.Client, endpoint, token str
 	if mediaType := strings.ToLower(strings.TrimSpace(strings.Split(httpResponse.Header.Get("Content-Type"), ";")[0])); mediaType != "application/json" {
 		return response{}, errors.New("heartbeat response is not JSON")
 	}
-	decoder := json.NewDecoder(io.LimitReader(httpResponse.Body, 16*1024+1))
+	body, err := io.ReadAll(io.LimitReader(httpResponse.Body, 16*1024+1))
+	if err != nil {
+		return response{}, err
+	}
+	if len(body) > 16*1024 {
+		return response{}, errors.New("heartbeat response exceeds size limit")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	var result response
 	if err := decoder.Decode(&result); err != nil {
 		return response{}, fmt.Errorf("invalid heartbeat response: %w", err)

@@ -161,3 +161,24 @@ func TestDurableInflightReportRestoredAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWarningsUseEarliestQuotaOrScheduledLock(t *testing.T) {
+	now := testMoment()
+	state := clientState{}
+	state.apply(response{Action: "allow", LeaseSeconds: 90, QuotaSeconds: 7200, RemainingSeconds: 3600, ServerTime: now, NextLockAt: now.Add(5 * time.Minute)}, now, now)
+	if remaining := state.warningRemaining(now); remaining != 300 {
+		t.Fatalf("warning=%d", remaining)
+	}
+	state.RemainingSeconds = 60
+	if state.warningRemaining(now) != 60 {
+		t.Fatal("quota must win over later bedtime")
+	}
+	state.QuotaSeconds = 0
+	if state.warningRemaining(now) != 300 {
+		t.Fatal("unlimited quota still needs bedtime warnings")
+	}
+	state.ScheduledLockAt = time.Time{}
+	if state.warningRemaining(now) <= 900 {
+		t.Fatal("unlimited unscheduled time must not warn")
+	}
+}
