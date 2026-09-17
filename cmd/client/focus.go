@@ -31,5 +31,17 @@ func (t *focusTracker) finish(now time.Time) (string, int, bool) {
 	if t.app == "" {
 		return "", 0, false
 	}
-	return t.app, int(now.Sub(t.startedAt).Seconds()), true
+	app, seconds := t.app, max(0, int(now.Sub(t.startedAt).Seconds()))
+	t.app = ""
+	t.startedAt = time.Time{}
+	return app, seconds, true
+}
+
+func (t *focusTracker) checkpoint(now time.Time) (string, int, bool) {
+	if t.app == "" {
+		return "", 0, false
+	}
+	seconds := max(0, int(now.Sub(t.startedAt).Seconds()))
+	t.startedAt = now
+	return t.app, seconds, true
 }

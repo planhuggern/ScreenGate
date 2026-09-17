@@ -1,19 +1,23 @@
 <!doctype html>
-<html lang="no">
+<html lang="nb">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ScreenGate</title>
-  <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}</style>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta name="description" content="ScreenGate gir familien en enkel oversikt over skjermtid, med dagsgrenser, ukeplan og rom for gode pauser.">
+  <meta name="theme-color" content="#306b4e">
+  <title>ScreenGate · Plass til mer enn skjerm</title>
+  {{template "styles" .}}
 </head>
 <body>
-  <h1>ScreenGate</h1>
-  <h2>Aktivitet {{.Date}}</h2>
-  {{if .Activities}}
-  <table>
-    <tr><th>Bruker</th><th>Brukt i dag</th><th>Maks per dag</th><th>Sist rapportert</th></tr>
-    {{range .Activities}}<tr><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>{{quota .QuotaSeconds}}</td><td>{{.LastReportedAt}}</td></tr>{{end}}
-  </table>
-  {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
+<a class="skip-link" href="#main">Hopp til innhold</a>
+<div class="landing">
+  <header class="landing-header"><a class="brand" href="/"><span class="brand-mark">{{template "icon-clock"}}</span>ScreenGate</a><a class="button" href="{{if .AdminPath}}{{.AdminPath}}{{else}}/admin{{end}}">For foresatte {{template "icon-arrow"}}</a></header>
+  <main id="main">
+    <section class="landing-main" aria-labelledby="landing-heading"><div class="landing-copy"><p class="eyebrow">SMÅ RAMMER. GODE HVERDAGER.</p><h1 id="landing-heading">Plass til mer<br>enn <span>skjerm.</span></h1><p>Spilling, lekser, venner og pauser. ScreenGate hjelper familien å finne en god rytme, med tydelige rammer for skjermtiden.</p><a class="button primary" href="{{if .AdminPath}}{{.AdminPath}}{{else}}/admin{{end}}">Åpne foreldreoversikten {{template "icon-arrow"}}</a><div class="private-note">{{template "icon-shield"}}Familiens aktivitet er privat og krever innlogging.</div></div><div class="balance-art" aria-hidden="true"><div class="balance-ring"></div><div class="balance-core">{{template "icon-clock"}}</div><p class="balance-caption">En litt bedre balanse</p><div class="floating-leaf small"></div><div class="floating-leaf"></div></div></section>
+    <section class="landing-features" aria-label="Dette kan du gjøre med ScreenGate"><article class="feature panel"><div class="guide-icon">{{template "icon-clock"}}</div><h2>Tydelige tidsgrenser</h2><p>En felles dagsgrense på brukerens enheter. Se tiden som er brukt, og hvor mye som er igjen.</p></article><article class="feature panel"><div class="guide-icon">{{template "icon-calendar"}}</div><h2>En ukeplan som passer</h2><p>Tilpass hverdager og helg, og bestem når skjermen skal være av. Avtal rammene sammen.</p></article><article class="feature panel"><div class="guide-icon">{{template "icon-leaf"}}</div><h2>Rom for fleksibilitet</h2><p>Gi litt ekstra tid i dag, eller sett skjermtilgangen på pause. Morgendagens regler står fast.</p></article></section>
+  </main>
+  <footer class="landing-footer"><span>ScreenGate · Plass til mer enn skjerm.</span><span>Ingen brukerdata vises på denne siden.</span></footer>
+</div>
 </body>
 </html>

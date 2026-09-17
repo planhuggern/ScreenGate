@@ -10,6 +10,8 @@ var screenTimeWarnings = []screenTimeWarning{
 	{threshold: 900, message: "15 minutter igjen", color: "#229A5A"},
 	{threshold: 600, message: "10 minutter igjen", color: "#D39E00"},
 	{threshold: 300, message: "5 minutter igjen", color: "#E67E22"},
+	{threshold: 60, message: "1 minutt igjen – lagre arbeidet ditt", color: "#C64B37"},
+	{threshold: 30, message: "30 sekunder igjen", color: "#B33030"},
 }
 
 type warningState struct {

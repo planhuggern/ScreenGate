@@ -1,3 +1,10 @@
 *.exe
 *.exe~
 *.dll
+.cache/
+.artifacts/
+.env
+*.db
+*.db-shm
+*.db-wal
+coverage.out

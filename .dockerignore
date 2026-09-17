@@ -1,0 +1,11 @@
+.git
+.cache
+.artifacts
+.env
+*.db
+*.db-shm
+*.db-wal
+*.exe
+*.exe~
+coverage.out
+node_modules

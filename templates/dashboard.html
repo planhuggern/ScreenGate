@@ -1,28 +1,155 @@
 <!doctype html>
-<html lang="no">
+<html lang="nb">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ScreenGate</title>
-  <style>body{font-family:system-ui,sans-serif;max-width:820px;margin:3rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #ddd}input{width:4rem}</style>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#306b4e">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Familiens oversikt · ScreenGate</title>
+  {{template "styles" .}}
 </head>
 <body>
-  <h1>ScreenGate</h1>
-  <p><a href="{{.AdminPath}}/downloads/install.ps1"><button>Last ned installasjon for Windows</button></a></p>
-  <p>Kjør deretter i PowerShell som administrator:</p>
-  <code>powershell -ExecutionPolicy Bypass -File .\install.ps1</code>
-  <p>Skriptet viser en liste over Windows-brukere. Velg brukeren som skal kjøre klienten.</p>
-  <h3>Avinstaller</h3>
-  <p>Kjør dette i PowerShell som administrator for å fjerne oppstartsoppgaven og klientfilene:</p>
-  <code>Unregister-ScheduledTask -TaskName "ScreenGate Client" -Confirm:$false; Remove-Item "C:\Program Files\ScreenGate" -Recurse -Force</code>
-  <h2>Aktivitet {{.Date}}</h2>
-  {{if .Activities}}
-  <table>
-    <tr><th>Bruker</th><th>Brukt i dag</th><th>Maks per dag</th><th>Sist rapportert</th></tr>
-    {{range .Activities}}<tr><td>{{.User}}</td><td>{{duration .TotalSeconds}}</td><td>
-      <form method="post" action="{{$.AdminPath}}/user-quota"><input type="hidden" name="user" value="{{.User}}"><input type="number" name="hours" min="0" value="{{hours .QuotaSeconds}}"> t <input type="number" name="minutes" min="0" max="59" value="{{minutes .QuotaSeconds}}"> min <button>Lagre</button><br><small>{{quota .QuotaSeconds}}</small></form>
-    </td><td>{{.LastReportedAt}}</td></tr>{{end}}
-  </table>
-  {{else}}<p>Ingen aktivitet registrert i dag.</p>{{end}}
+<a class="skip-link" href="#main">Hopp til innhold</a>
+<div class="layout">
+  <aside class="sidebar" aria-label="Hovedmeny">
+    <a class="brand" href="{{.AdminPath}}"><span class="brand-mark">{{template "icon-clock"}}</span>ScreenGate</a>
+    <div>
+      <p class="sidebar-label">FAMILIENS SKJERMTID</p>
+      <nav class="nav" aria-label="Navigasjon">
+        <a class="active" href="#main" aria-current="page">{{template "icon-home"}}Oversikt</a>
+        <a href="#family">{{template "icon-users"}}Brukere</a>
+        <a href="#week">{{template "icon-chart"}}Denne uken</a>
+        <a href="#devices">{{template "icon-device"}}Enheter</a>
+      </nav>
+    </div>
+    <div class="sidebar-bottom"><strong>Plass til mer enn skjerm.</strong>Små rammer. Gode hverdager.</div>
+  </aside>
+
+  <main class="workspace" id="main">
+    <div class="topline">
+      <span>Hjem <span aria-hidden="true">&nbsp; / &nbsp;</span> <strong>Oversikt</strong></span>
+      <div class="topline-right"><span class="muted">{{if .Timezone}}{{.Timezone}}{{else}}Lokal tid{{end}}</span><a class="button compact" href="{{.AdminPath}}" aria-label="Oppdater oversikten">{{template "icon-refresh"}}Oppdater</a></div>
+    </div>
+
+    <header class="page-heading">
+      <div><h1>Litt mer balanse i hverdagen.</h1><p>Oversikt over skjermtiden. Rom for alt det andre.</p></div>
+      <time class="page-date" datetime="{{.Date}}">{{norwegianDate .Date}}</time>
+    </header>
+
+    {{if .Flash}}<div class="notice" role="status">{{template "icon-shield"}}<p>{{.Flash}}</p></div>{{end}}
+    {{if .PairingCode}}<div class="notice" role="status">{{template "icon-device"}}<p>Koblingskoden for <strong>{{.PairingUser}}</strong> er klar. <a href="#pairing-code">Vis koden og koble til Windows-enheten.</a></p></div>{{end}}
+
+    {{$summary := .Summary}}
+    <section class="hero" aria-label="Dagens oversikt">
+      <div class="hero-copy"><p class="eyebrow">TYDELIGE RAMMER, MER RO</p><h2>Du setter rammene. Vi holder tiden.</h2><p>Tilpass dagsgrenser, legg inn skjermfrie kvelder og gi litt ekstra tid når det passer. Alt samlet på ett sted.</p></div>
+      <div class="hero-art" aria-hidden="true"><div class="hero-orbit"></div><div class="hero-clock">{{template "icon-clock"}}</div></div>
+    </section>
+
+    <section class="stats" aria-label="Nøkkeltall i dag">
+      <div class="stat panel"><div class="stat-top"><span>Skjermtid i dag</span>{{template "icon-clock"}}</div><p class="stat-value">{{humanDuration $summary.TotalSeconds}}</p><p class="stat-foot">Samlet for {{len .Activities}} brukere</p></div>
+      <div class="stat panel"><div class="stat-top"><span>Tilkoblet nå</span>{{template "icon-users"}}</div><p class="stat-value">{{$summary.Online}} <small class="muted">/ {{len .Activities}}</small></p><p class="stat-foot">Brukere med nylig rapport</p></div>
+      <div class="stat panel"><div class="stat-top"><span>Med dagsgrense</span>{{template "icon-shield"}}</div><p class="stat-value">{{$summary.Limited}}</p><p class="stat-foot">Tidsgrensen gjelder i dag</p></div>
+      <div class="stat panel"><div class="stat-top"><span>Satt på pause</span>{{template "icon-pause"}}</div><p class="stat-value">{{$summary.Paused}}</p><p class="stat-foot">Åpnes igjen når du velger det</p></div>
+    </section>
+
+    <section id="family" aria-labelledby="family-heading">
+      <div class="section-heading"><div><h2 id="family-heading">Familiens skjermtid <small>{{len .Activities}} brukere</small></h2><p>Tiden som er brukt, tiden som er igjen og reglene dere har avtalt.</p></div></div>
+      {{if .Activities}}
+      <div class="user-grid">
+      {{range .Users}}{{$user := .}}
+        <article class="user-card panel" aria-labelledby="user-{{.Index}}">
+          <div class="user-top">
+            <div class="person"><span class="avatar" aria-hidden="true">{{.Initials}}</span><div><h3 id="user-{{.Index}}">{{.User}}</h3><p>{{if .Online}}<span class="dot online-dot"></span>Tilkoblet{{else}}<span class="dot offline-dot"></span>Ingen nylig rapport{{end}}</p></div></div>
+            <span class="pill {{.StatusTone}}"><span class="dot" aria-hidden="true"></span>{{.Status}}</span>
+          </div>
+
+          <div class="usage-row"><p class="used" title="{{duration .TotalSeconds}}">{{humanDuration .TotalSeconds}} <small>brukt</small></p><p class="remaining">{{if .Unlimited}}Ingen dagsgrense{{else}}<strong>{{humanDuration .RemainingSeconds}}</strong> igjen{{end}}</p></div>
+          <progress class="usage-progress{{if eq .UsagePercent 100}} exhausted{{end}}" max="100" value="{{.UsagePercent}}" aria-label="{{.User}}: {{humanDuration .TotalSeconds}} brukt av {{quota .QuotaSeconds}}">{{.UsagePercent}} %</progress>
+          <div class="usage-meta"><span>Dagens ramme: {{quota .QuotaSeconds}}</span><span>{{if not .Unlimited}}{{.UsagePercent}} % brukt{{else}}&nbsp;{{end}}</span></div>
+          <p class="status-detail">{{.StatusDetail}}</p>
+
+          <div class="quick-actions">
+            <form method="post" action="{{$.AdminPath}}/user-pause">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}">
+              {{if .Paused}}<input type="hidden" name="paused" value="false"><button class="button soft compact" type="submit">Åpne skjermtilgang</button>{{else}}<input type="hidden" name="paused" value="true"><button class="button pause compact" type="submit">{{template "icon-pause"}}Sett på pause</button>{{end}}
+            </form>
+            <form class="bonus-form" method="post" action="{{$.AdminPath}}/user-bonus">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}"><input type="hidden" name="action" value="add">
+              <span>Ekstra i dag</span><button class="button compact" type="submit" name="minutes" value="15" aria-label="Gi {{.User}} 15 minutter ekstra i dag">+15 min</button><button class="button compact" type="submit" name="minutes" value="30" aria-label="Gi {{.User}} 30 minutter ekstra i dag">+30 min</button>
+            </form>
+          </div>
+          {{if .BonusSeconds}}<div class="bonus-note"><span>{{humanDuration .BonusSeconds}} ekstra er lagt til i dag.</span><form method="post" action="{{$.AdminPath}}/user-bonus"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}"><input type="hidden" name="action" value="reset"><button class="text-button" type="submit" aria-label="Fjern dagens ekstratid for {{.User}}">Fjern ekstratid</button></form></div>{{end}}
+
+          <details class="rule-editor">
+            <summary>Grenser og ukeplan <span class="sr-only">for {{.User}}</span></summary>
+            <div class="rule-content">
+              <h4>Vanlig dagsgrense</h4>
+              <form method="post" action="{{$.AdminPath}}/user-quota">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}">
+                <div class="fields"><label class="field">Timer<input type="number" name="hours" min="0" max="24" value="{{hours .BaseQuotaSeconds}}" required></label><label class="field">Minutter<input type="number" name="minutes" min="0" max="59" value="{{minutes .BaseQuotaSeconds}}" required></label><button class="button primary" type="submit">Lagre grense</button></div>
+                <p class="help">Gjelder dager uten egen regel. 0 timer og 0 minutter betyr ubegrenset.</p>
+              </form>
+              <details class="schedule-details"><summary>Tilpass hver ukedag</summary>
+                <p class="schedule-intro">Slå på «Egen regel» for dagene du vil tilpasse. Tillatt tidsrom følger {{if $.Timezone}}{{$.Timezone}}{{else}}serverens tidssone{{end}}. 00:00–24:00 åpner hele dagen. Et tidsrom over midnatt følger ukedagen det begynner på.</p>
+                <form method="post" action="{{$.AdminPath}}/user-policy">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}">
+                  {{range .RuleDays}}
+                  <div class="schedule-day" role="group" aria-label="{{.Name}} for {{$user.User}}">
+                    <div class="schedule-day-head"><strong>{{.Name}}</strong><label class="check"><input type="checkbox" name="day_{{.Weekday}}_enabled" value="on" {{if .Configured}}checked{{end}}>Egen regel</label></div>
+                    <div class="schedule-fields"><label class="field">Timer<input type="number" name="day_{{.Weekday}}_hours" min="0" max="24" value="{{hours .QuotaSeconds}}"></label><label class="field">Minutter<input type="number" name="day_{{.Weekday}}_minutes" min="0" max="59" value="{{minutes .QuotaSeconds}}"></label><label class="field">Fra kl.<input class="clock-field" type="text" inputmode="numeric" name="day_{{.Weekday}}_start" value="{{clockMinute .StartMinute}}" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" placeholder="00:00" aria-label="{{.Name}} tillatt fra klokken"></label><label class="field">Til kl.<input class="clock-field" type="text" inputmode="numeric" name="day_{{.Weekday}}_end" value="{{clockMinute .EndMinute}}" pattern="([01][0-9]|2[0-3]):[0-5][0-9]|24:00" placeholder="24:00" aria-label="{{.Name}} tillatt til klokken"></label><label class="check"><input type="checkbox" name="day_{{.Weekday}}_disabled" value="on" {{if .Disabled}}checked{{end}}>Skjermfri dag</label></div>
+                  </div>
+                  {{end}}
+                  <button class="button primary" type="submit">Lagre ukeplan</button><p class="help">En skjermfri dag og pause gjelder også når du gir ekstratid.</p>
+                </form>
+              </details>
+            </div>
+          </details>
+
+          <details class="device-inline"><summary><time datetime="{{.LastReportedAt}}" title="{{.LastReportedAt}}">{{.LastSeen}}</time>{{if .Devices}} · {{len .Devices}} enheter{{end}}</summary><ul>{{range .Devices}}<li><span>{{.ID}}</span><span>{{if .Online}}{{if eq .State "idle"}}Inaktiv{{else if eq .State "locked"}}Låst{{else}}Tilkoblet{{end}}{{else}}Frakoblet{{end}}</span></li>{{else}}<li>Ingen enhetsrapporter ennå.</li>{{end}}</ul></details>
+        </article>
+      {{end}}
+      </div>
+      {{else}}
+        <div class="empty-state panel"><div class="empty-icon">{{template "icon-users"}}</div><h2>En roligere skjermhverdag starter her.</h2><p>Koble til den første Windows-enheten, så dukker brukeren opp her. Du kan deretter tilpasse tidsgrenser og ukeplan.</p><a class="button primary" href="#devices">Koble til første enhet {{template "icon-arrow"}}</a><div class="steps"><span><span class="step-number">1</span>Lag en koblingskode</span><span><span class="step-number">2</span>Installer på Windows</span><span><span class="step-number">3</span>Sett familiens rammer</span></div></div>
+      {{end}}
+    </section>
+
+    <div class="bottom-grid">
+      <section class="weekly panel" id="week" aria-labelledby="week-heading">
+        <div class="weekly-header"><div><h2 id="week-heading">De siste 7 dagene</h2><p>Familiens samlede skjermtid</p></div><div class="week-number">{{humanDuration $summary.WeekSeconds}}<small>til sammen</small></div></div>
+        <figure class="chart" aria-label="Skjermtid per dag de siste syv dagene">
+          <ol class="bars">{{range $summary.Days}}<li class="bar-column{{if .Today}} is-today{{end}}"><span class="bar-value">{{humanDuration .TotalSeconds}}</span><div class="bar-track" aria-hidden="true"><div class="bar{{if .Today}} today{{end}}" style="--bar:{{.Height}}%"></div></div><time class="bar-label" datetime="{{.Date}}">{{if .Today}}I dag{{else}}{{.Label}}{{end}}</time></li>{{end}}</ol>
+          <figcaption class="chart-note">Gjennomsnitt: <strong>{{humanDuration $summary.DailyAverage}}</strong> per dag. Inkluderer i dag.</figcaption>
+        </figure>
+        <p class="help"><a href="{{.AdminPath}}/export.csv">Last ned ukesoversikt (CSV)</a></p>
+      </section>
+      <aside class="guide panel" aria-labelledby="guide-heading"><h2 id="guide-heading">Gode rammer, sammen.</h2><p>Gjør reglene enkle å forstå og lette å følge.</p><ul class="guide-list"><li><span class="guide-icon">{{template "icon-calendar"}}</span><div><strong>En hverdag, en helg.</strong><p>Ukeplanen kan gi litt mer tid på lørdag og skjermfrie kvelder på skoledager.</p></div></li><li><span class="guide-icon">{{template "icon-clock"}}</span><div><strong>Litt ekstra, bare i dag.</strong><p>Ekstratid nullstilles ved midnatt. Morgendagens avtale står fast.</p></div></li><li><span class="guide-icon">{{template "icon-leaf"}}</span><div><strong>En pause når det trengs.</strong><p>Sett tilgangen på pause til middagen er ferdig. Åpne igjen med ett trykk.</p></div></li></ul></aside>
+    </div>
+
+    <section class="devices-panel panel" id="devices" aria-labelledby="devices-heading">
+      <div class="section-heading"><div><h2 id="devices-heading">Enheter og tilkobling</h2><p>Koble en Windows-enhet til riktig bruker med en engangskode.</p></div>{{template "icon-device"}}</div>
+      <div class="devices-layout">
+        <div>
+          <h3>Legg til en enhet</h3><p class="help">Bruk samme navn på flere enheter for å dele brukerens tidsgrense. Nye brukere starter med 1 time per dag.</p>
+          <form class="pair-form" method="post" action="{{.AdminPath}}/devices/pair"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><div class="fields"><label class="field">Brukernavn<input type="text" name="user" placeholder="For eksempel Nora" maxlength="128" autocomplete="off" required></label><button class="button primary" type="submit">Lag koblingskode</button></div></form>
+          {{if .PairingCode}}<div class="pair-result" id="pairing-code"><h3>Koblingskode for {{.PairingUser}}</h3><code class="pair-code">{{.PairingCode}}</code><p>Koden kan brukes én gang og er gyldig i 15 minutter. Oppgi den når installasjonen på Windows ber om koblingskode.</p></div>{{end}}
+          <details class="setup-details" {{if .PairingCode}}open{{end}}><summary>Slik installerer du på Windows</summary><ol><li>Lag en koblingskode for brukeren ovenfor.</li><li>Last ned installasjonsfilen på Windows-enheten.</li><li>Åpne PowerShell som administrator og kjør kommandoen nedenfor i mappen med filen.</li><li>Følg veiviseren, og velg Windows-brukeren som skal ha ScreenGate.</li></ol><a class="button" href="{{.AdminPath}}/downloads/install.ps1">Last ned installasjon for Windows {{template "icon-arrow"}}</a><code class="code">powershell -ExecutionPolicy Bypass -File .\install.ps1</code><p class="help">Installer med en foresatt sin administratorkonto. Barnets Windows-konto bør være en standardkonto.</p></details>
+        </div>
+        <div>
+          {{if .Devices}}<ul class="device-list">{{range .Devices}}<li class="device-item"><div class="device-info"><strong>{{if .DeviceID}}{{.DeviceID}}{{else}}Venter på første tilkobling{{end}}</strong><p>{{.User}} · {{lastSeen .LastSeen}}</p>{{if .Revoked}}<span class="pill slate">Tilgang trukket tilbake</span>{{end}}</div>{{if not .Revoked}}<form method="post" action="{{$.AdminPath}}/devices/revoke"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="id" value="{{.ID}}"><button class="button compact danger" type="submit" aria-label="Trekk tilbake tilgangen til {{.DeviceID}} for {{.User}}">Koble fra</button></form>{{end}}</li>{{end}}</ul>{{else}}<div class="empty-devices">{{template "icon-device"}}<h3>Plass til familiens enheter</h3><p>Enheter med koblingskode vises her når de er registrert.</p></div>{{end}}
+          <p class="help">«Koble fra» trekker tilbake enhetens servertilgang. Avinstaller klienten på Windows hvis den ikke lenger skal styres.</p>
+        </div>
+      </div>
+    </section>
+    <section class="devices-panel panel maintenance" aria-label="Historikk og sikkerhetskopi">
+      <details><summary>Endringslogg og sikkerhetskopi</summary><p class="help">De siste endringene i familiens regler og enheter.</p>
+        {{if .Audit}}<ol class="audit-list">{{range .Audit}}<li><time>{{.At}}</time><span>{{if .User}}<strong>{{.User}}</strong> · {{end}}{{.Description}}</span></li>{{end}}</ol>{{else}}<p class="help">Ingen endringer er registrert ennå.</p>{{end}}
+        <a class="button" href="{{.AdminPath}}/backup">Last ned sikkerhetskopi</a><p class="help">Inneholder regler, skjermtid og enhetsregistreringer. Oppbevar filen privat.</p>
+      </details>
+    </section>
+    <footer class="footer"><span>{{template "icon-shield"}}Brukeraktivitet vises bare i foreldreoversikten.</span><span>Endringer hentes ved neste klientrapport. Oppdater siden for fersk status.</span></footer>
+  </main>
+</div>
 </body>
 </html>

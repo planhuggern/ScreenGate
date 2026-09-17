@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"syscall"
 )
 
 func showWarning(warning screenTimeWarning) error {
@@ -24,7 +25,10 @@ $window.Top = [System.Windows.SystemParameters]::WorkArea.Bottom - $window.Heigh
 $text = New-Object Windows.Controls.TextBlock
 $text.Text = '%s'
 $text.Foreground = [Windows.Media.Brushes]::White
-$text.FontSize = 36
+$text.FontSize = 27
+$text.TextWrapping = 'Wrap'
+$text.TextAlignment = 'Center'
+$text.Margin = '18'
 $text.FontWeight = 'SemiBold'
 $text.VerticalAlignment = 'Center'
 $text.HorizontalAlignment = 'Center'
@@ -40,5 +44,10 @@ $timer.add_Tick({
 $window.add_Loaded({ $timer.Start() })
 [void]$window.ShowDialog()`, warning.color, warning.message)
 	command := exec.Command("powershell.exe", "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-Command", script)
-	return command.Start()
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := command.Start(); err != nil {
+		return err
+	}
+	go command.Wait()
+	return nil
 }

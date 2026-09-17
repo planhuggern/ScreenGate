@@ -1,298 +1,141 @@
 # ScreenGate
 
-En minimal Go-server for å motta heartbeats fra Windows-klienter. Den summerer sekunder per bruker i SQLite, logger aktiviteten og svarer alltid med `allow`. Docker Compose lagrer databasen i en persistent volume.
+ScreenGate styrer skjermtid på Windows-PC-er fra en liten Go-server hjemme. Foreldreoversikten samler brukere, dagsgrenser, ukeplan, ekstratid og tilkoblede enheter. Serveren lagrer data lokalt i SQLite.
 
-## Kjør med Docker
+## Dette er på plass
+
+- Felles dagskvote per bruker på tvers av PC-er.
+- Egen kvote og tillatt tidsrom for hver ukedag, inkludert tidsrom over midnatt og skjermfrie dager.
+- Pause og gjenåpning, samt bonusminutter som utløper ved lokal midnatt.
+- Mobiltilpasset norsk kontrollpanel med gjenværende tid, enhetsstatus, syvdagershistorikk, CSV og endringslogg.
+- Innlogging for administrasjonen, beskyttede skjemaer og separate, tilbakekallbare enhetsnøkler.
+- Engangskoder for tilkobling av Windows-brukere. Nye brukere starter med én time per dag.
+- Varsler på Windows før tiden er brukt opp, og lokal låsing når tillatelsen utløper.
+- Varig klienttilstand og idempotente rapporter: omstart og tapte svar skal ikke gi ny kvote eller dobbelttelle aktivitet.
+- En kort tillatelse ved nettbrudd, begrenset av gjenværende tid og neste regelendring.
+- Konsistent SQLite-sikkerhetskopi som kan lastes ned fra foreldreoversikten.
+
+Forsiden viser ingen navn eller aktivitetsdata. Registrering av programmer er avslått som standard. Serveren lagrer ikke programnavn, vindustitler, innhold eller nettleserhistorikk.
+
+## Start med Docker
+
+1. Kopier `.env.example` til `.env`.
+2. Sett et eget `ADMIN_PASSWORD` på minst 12 tegn.
+3. Kjør:
 
 ```sh
-docker compose up --build
+docker compose up --build -d
 ```
 
-Serveren lytter på `http://localhost:8081`.
+Åpne **http://localhost:8081/admin** og logg inn som `admin` med passordet ditt.
 
-Adminoversikten ligger på stien satt i `ADMIN_PATH` i `docker-compose.yml`.
+Standardoppsettet lytter bare på denne maskinen. For PC-er på hjemmenettet må `SCREENGATE_BIND` i `.env` settes til serverens LAN-adresse, eller `0.0.0.0`. Klientene trenger nettverkstilgang til serverporten. Bruk HTTPS via en reverse proxy før du sender passord eller enhetsnøkler over et nettverk du ikke stoler på.
 
-Bruk knappen **Last ned installasjon for Windows** på forsiden for å hente `install.ps1`. Kjør skriptet som administrator på Windows 11 x64-maskinen; det viser en liste over kjente brukerprofiler. Velg brukeren som skal kjøre klienten.
+Databasen lagres i Docker-volumet `screengate-data`. Containeren kjører som en vanlig bruker, har skrivebeskyttet rotfilsystem og har en helsesjekk.
 
-Klienten kjører uten konsollvindu. Statusendringer logges til `C:\ProgramData\ScreenGate\client.log`; loggfilen roteres ved 1 MB.
+**Oppgradering fra den gamle utgaven:** Ta sikkerhetskopi først. Den nye serveren krever administratorpassord og klientene må oppdateres og kobles til med engangskode. Et eldre volum kan også trenge ny fileier. Se [drift og oppgradering](docs/OPERATIONS.md).
+
+## Koble til en Windows-PC
+
+1. Lag en koblingskode under **Enheter og tilkobling** i foreldreoversikten.
+2. Last ned installasjonen fra samme sted.
+3. På Windows-PC-en: åpne PowerShell som administrator og kjør:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-### Avinstaller
+Veiviseren spør etter serveradressen, Windows-brukeren som skal styres og koblingskoden. Eksempel på serveradresse: `http://192.168.1.10:8081/heartbeat`.
 
-Kjør i PowerShell som administrator for å fjerne oppstartsoppgaven og klientfilene:
+Du kan også oppgi alt eksplisitt:
 
 ```powershell
-Unregister-ScheduledTask -TaskName "ScreenGate Client" -Confirm:$false; Remove-Item "C:\Program Files\ScreenGate" -Recurse -Force
+.\install.ps1 -ServerUrl "https://screengate.example/heartbeat" -User "PC\barn" -EnrollmentCode "KODEN-FRA-FORELDREOVERSIKTEN"
 ```
 
-Forsiden viser bruk per bruker og lar deg sette en daglig kvote i timer og minutter. `0 t 0 min` betyr ubegrenset. Skjermtid beregnes fra tidsrommet mellom heartbeats fra samme bruker og maskin: et tidsrom teller når det er høyst 63 sekunder (2,1 × 30-sekundersintervallet) mellom heartbeatene. Serveren bruker mottakstidspunktet sitt, ikke klientens timestamp. Når dagens bruk når kvoten, svarer serveren med `lock` ved neste heartbeat.
+Koden varer i 15 minutter og kan brukes én gang. Navnet du valgte i foreldreoversikten bestemmer hvilken kvote enheten deler; Windows-kontonavnet trenger ikke være identisk. Lag en ny kode for hver enhet. Bruk samme ScreenGate-navn på flere PC-er når de skal dele dagskvote.
 
-## Send en heartbeat
+Installasjonen kontrollerer nedlastingens SHA-256, lagrer konfigurasjonen med begrensede Windows-rettigheter og oppretter én oppstartsoppgave per Windows-bruker. Oppgradering uten ny kode beholder eksisterende tilkobling. `-SkipStart` utsetter oppstart til neste innlogging.
 
-```sh
-curl -X POST http://localhost:8081/heartbeat \
-  -H "Content-Type: application/json" \
-  -d '{"device_id":"pc-barn1","user":"barn1","active_seconds":47,"reported_at":"2026-08-30T21:30:00+02:00"}'
+Klienten logger i den styrte brukerens **%LOCALAPPDATA%\ScreenGate\client.log**. Konfigurasjonen ligger i **C:\ProgramData\ScreenGate\<Windows-SID>\client.json**.
+
+### Avinstallering
+
+Last ned `/downloads/uninstall.ps1` fra serveren, og kjør som administrator:
+
+```powershell
+.\uninstall.ps1 -User "PC\barn"
 ```
 
-Respons:
+Dette fjerner oppgaven og enhetsnøkkelen for akkurat denne Windows-brukeren. Andre brukeres installasjoner, den delte programfilen og lokale logger blir beholdt. Trekk også tilbake enheten med **Koble fra** i foreldreoversikten. Tilbakekalling alene avinstallerer ikke klienten og vil føre til at den nekter videre skjermtilgang.
 
-```json
-{"action":"allow","message":"ok","daily_total_seconds":47}
+## Hvordan tiden beregnes
+
+Klienten måler bruk av en ulåst, tilkoblet Windows-økt. En låst økt, utlogget bruker og søvn gir ikke skjermtid. Video og annen passiv skjermbruk teller som standard. Valgfritt `-idle-timeout 5m` stopper opptellingen etter fem minutter uten inndata; dette bør ikke brukes hvis passiv video skal telle.
+
+Klienten rapporterer omtrent hvert 30. sekund og ved endring av øktstatus. Serveren bruker egne klokkeslett og begrenser rapportert aktivitet til mulig forløpt tid. Hver rapport har en unik ID, slik at et tapt svar kan prøves igjen uten dobbel belastning.
+
+Tiden summeres per bruker. **Samtidig bruk av to PC-er bruker dobbelt så mange kvotesekunder.** Gamle rapporter fra før oppgraderingen beholder den tidligere beregningen basert på sammenhengende serverregistrerte intervaller på maksimalt 63 sekunder.
+
+Dagsgrensen følger `SCREENGATE_TIMEZONE`, som er `Europe/Oslo` som standard. Midnatt og overgangen mellom sommer- og vintertid håndteres etter den valgte tidssonen. Forsinket aktivitet med gyldig opprinnelig dato blir belastet denne datoen.
+
+### Regler og prioritet
+
+1. **Pause** stenger tilgangen til du åpner igjen.
+2. **Skjermfri dag / tillatt tidsrom** bestemmer om skjermen kan brukes nå.
+3. **Dagsgrense + dagens ekstratid** bestemmer hvor mye tid som gjenstår.
+
+En dagsgrense på `0` betyr ubegrenset kvote; pause og tidsplan gjelder likevel. Ekstratid omgår aldri pause eller tidsplan. Dager uten egen regel arver den vanlige dagsgrensen og tillater bruk hele døgnet.
+
+Et tidsrom som `20:00–02:00` starter på den valgte ukedagen og fortsetter neste natt. En eksplisitt skjermfri dag stenger også for en slik videreføring. Kvoten og bonusen nullstilles ved kalenderdagens midnatt.
+
+Endringer når en tilkoblet klient ved neste rapport, vanligvis innen 30 sekunder. Ved nettbrudd er siste tillatelse gyldig i **maksimalt 90 sekunder**, og aldri lenger enn gjenværende tid eller neste tidsgrense. Klienten lagrer tillatelsens absolutte utløp; omstart fyller den ikke opp. Uten gyldig tillatelse låser klienten Windows.
+
+## Hva håndhevingen beskytter mot
+
+Dette er en klient som starter i brukerens Windows-økt, ikke en Windows-tjeneste med egen privilegert håndheving. Bruk en standardkonto for den styrte brukeren og behold administratorkontoen hos en foresatt.
+
+En teknisk kyndig bruker som stopper prosessen eller lager en egen klient, kan omgå denne modellen. Lokal tilstand er signert for å oppdage ødelagte eller endrede filer, men enhetsnøkkelen må kunne leses av den kjørende klienten. Signeringen er derfor ikke en sikkerhetsgrense mot kontoeieren. Serveren beskytter administrasjon og andre brukeres identitet; den kan ikke bevise at en kompromittert PC rapporterer sann aktivitet.
+
+Sterkere manipulasjonsvern krever en separat Windows-tjeneste og kontopolicyer. Den installeres ikke automatisk av denne utgaven.
+
+## Lokal utvikling
+
+Go 1.25 eller nyere:
+
+```powershell
+$env:ADMIN_PASSWORD = (Get-Credential -UserName admin -Message 'ScreenGate-passord, minst 12 tegn').GetNetworkCredential().Password
+$env:DATABASE_PATH = 'screengate.db'
+go run .
 ```
 
-## Tester
-
-```sh
-go test ./...
-```
-
-Etter hver kodeendring skal Docker-imaget også verifiseres:
-
-```sh
-docker build .
-```
-
-## Windows-klient
-
-Klienten sender én heartbeat hvert 30. sekund mens den kjører i den innloggede Windows-økten. Serveren bruker timestampene, ikke `active_seconds`, til å beregne skjermtid. Bygg og kjør den på Windows:
+Serveren lytter på `:8080` ved lokal kjøring. For å bygge Windows-klienten uten konsollvindu:
 
 ```powershell
 go build -ldflags "-H=windowsgui" -o screengate-client.exe ./cmd/client
-.\screengate-client.exe -server http://SERVER:8081/heartbeat
 ```
 
-Klienten registrerer også skifter mellom programmer i forgrunnen og sender dem til `POST /event`. Eventene logges på serveren, men lagres ikke i databasen ennå.
+Klienten kan startes med `-config` og filen fra installasjonen. `-server`, `-user`, `-device-id` og `-token-file` finnes for kontrollert feilsøking. Ikke kjør den på en foreldre- eller utviklerkonto ved et uhell: den kan låse økten når kvoten eller tillatelsen utløper.
 
----
+### Verifisering
 
-## Videre idéer
+```sh
+go test ./...
+go test -race ./...
+go vet ./...
+docker build -t screengate:local .
+```
 
-Hovedidé
+Testene dekker blant annet innlogging, CSRF, tilkobling og tilbakekalling, kvoter, ukedager, midnatt, sommertid, bonus, samtidige rapporter, offline-omstart og sikkerhetskopi.
 
-Arkitekturen består av:
+Det finnes også en valgfri nettlesertest med Node 22+ og Playwright:
 
-én sentral server som kjører hjemme
-én liten klient installert på hver Windows-PC
-serveren bestemmer reglene
-klienten rapporterer aktivitet og utfører kommandoene den får fra serveren
+```sh
+node scripts/browser-smoke.cjs
+```
 
-Klienten skal være så enkel og generell som mulig. Regler og logikk skal i hovedsak ligge på serveren, slik at klientene normalt bare trenger å installeres én gang.
+Bygg først serveren til `.artifacts/screengate.exe` på Windows, eller `.artifacts/screengate` på Linux. Testen lager sin egen database, kjører hele flyten for tilkobling, pause og ekstratid og tar skjermbilder av skrivebords- og mobilvisning. Den starter **aldri Windows-klienten**.
 
-Første versjon
+## Konfigurasjon og API
 
-Første versjon skal være svært enkel.
-
-Serveren skal:
-
-eksponere POST /heartbeat
-motta aktivitet fra klientene
-logge aktiviteten
-alltid svare at bruk er tillatt
-
-Eksempel på request:
-
-{
-  "device_id": "pc-barn1",
-  "user": "barn1",
-  "active_seconds": 47
-}
-
-Eksempel på response:
-
-{
-  "action": "allow",
-  "message": "ok"
-}
-
-Klienten skal etter hvert sende heartbeat omtrent én gang per minutt.
-
-Første milepæl er bare å få hele kjeden til å virke stabilt:
-
-Windows-klient
-    ↓
-POST /heartbeat
-    ↓
-ScreenGate-server
-    ↓
-logging
-    ↓
-ALLOW
-Fremtidig arkitektur
-
-På sikt skal serveren holde oversikt over:
-
-brukere
-enheter
-hvor mye skjermtid som er brukt
-gjenværende skjermtid
-regler per bruker
-regler per ukedag
-bonusminutter
-midlertidige overstyringer
-eventuell manuell låsing
-
-Eksempel på regel:
-
-Mandag–fredag:
-
-før kl. 12:00
-    60 minutter tilgjengelig
-
-etter kl. 12:00
-    60 nye minutter tilgjengelig
-
-Tiden skal være kvotebasert, ikke basert på faste spilleperioder.
-
-Eksempel:
-
-08:10–08:30 -> 20 minutter brukt
-09:15–09:35 -> 20 minutter brukt
-
-20 minutter gjenstår før kl. 12
-
-Klokken 12 starter en ny kvote.
-
-Klientens ansvar
-
-Windows-klienten skal være en liten agent som kjører i bakgrunnen.
-
-Den skal på sikt kunne:
-
-identifisere maskinen
-identifisere aktiv Windows-bruker
-måle faktisk brukeraktivitet
-sende aktivitet til serveren omtrent én gang per minutt
-motta beslutning fra serveren
-vise advarsler
-låse PC-en når serveren krever det
-
-Klienten skal ikke inneholde kompleks regelmotor.
-
-Den skal primært forstå enkle handlinger som:
-
-ALLOW
-WARN
-LOCK
-Offline-fallback
-
-Systemet skal fortsatt fungere dersom hjemmeserveren eller nettverket midlertidig er utilgjengelig.
-
-Klienten skal derfor lagre siste gyldige svar fra serveren.
-
-Eksempel:
-
-Server:
-23 minutter gjenstår
-
-Serveren blir utilgjengelig.
-
-Klienten kan fortsette lokalt i maksimalt de 23 minuttene.
-Når tiden er brukt opp:
-LOCK
-
-Det skal også finnes en maksimal offline-tillatelse, for eksempel 60 minutter.
-
-En klient skal aldri få en ny full kvote bare fordi kontakten med serveren forsvinner.
-
-Konseptuelt:
-
-offline_remaining =
-    min(last_server_remaining, max_offline_allowance)
-Flere enheter
-
-På sikt bør skjermtid kunne følge brukeren og ikke bare maskinen.
-
-Eksempel:
-
-Barn 1 bruker:
-40 minutter på desktop
-10 minutter på laptop
-
-Totalt brukt:
-50 minutter
-
-Gjenværende kvote:
-10 minutter
-
-Dette betyr at serveren er autoritativ for samlet bruk.
-
-Teknologi
-
-Foreløpig ønsket stack:
-
-Server
-Go
-Go standard library der det er praktisk
-HTTP/JSON API
-Docker
-Docker Compose
-
-Database kommer senere når det faktisk er behov for det.
-
-SQLite er et naturlig førstevalg.
-
-Klient
-Go
-Windows
-etter hvert Windows Service
-Prinsipper
-
-Prosjektet skal være:
-
-enkelt
-robust
-lett å forstå
-lett å feilsøke
-avhengig av få komponenter
-uten unødvendige abstraksjoner
-bygget iterativt
-
-Unngå å bygge funksjonalitet før den trengs.
-
-Ikke lag komplekse frameworks, plugin-systemer eller generiske abstraheringer uten et konkret behov.
-
-Utviklingsrekkefølge
-
-Planlagt rekkefølge er omtrent:
-
-Minimal server med /heartbeat
-Enkel klient som sender heartbeat
-Stabil logging av aktivitet
-Summering av brukt tid
-Server returnerer gjenværende tid
-Enkle tidskvoter
-Klienten kan vise advarsler
-Klienten kan låse Windows
-Offline-fallback
-Persistens med SQLite
-Enkel administrasjonsside
-Bonusminutter og midlertidige overrides
-
-Hver milepæl bør være liten og fungerende før neste bygges.
-
-Nåværende scope
-
-Akkurat nå skal prosjektet kun fokusere på den minimale serveren.
-
-Ikke implementer ennå:
-
-database
-autentisering
-skjermtidsregler
-låsing
-frontend
-administrasjonsside
-avansert konfigurasjon
-
-Første mål er kun:
-
-POST /heartbeat
--> valider input
--> logg aktivitet
--> returner ALLOW
-
-Dette skal være et lite og enkelt fundament som resten av ScreenGate senere kan bygges på.
+Se [driftsveiledningen](docs/OPERATIONS.md) og [API-kontrakten](docs/API.md). Databasen migreres automatisk ved oppstart. Ingen ekstern skytjeneste er nødvendig.

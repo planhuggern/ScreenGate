@@ -60,6 +60,9 @@ func TestOpenRepositoryMigratesLegacySchema(t *testing.T) {
 		}
 		columns[name] = true
 	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if columns["date"] || columns["active_seconds"] || !columns["reported_at"] || !columns["device_id"] || !columns["user"] {
 		t.Fatalf("heartbeat columns = %#v", columns)
 	}
@@ -79,7 +82,7 @@ func TestOpenRepositoryMigratesLegacySchema(t *testing.T) {
 	if err := repository.db.QueryRow(`SELECT version_id FROM goose_db_version WHERE is_applied = 1 ORDER BY version_id DESC LIMIT 1`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("migration version = %d, want 2", version)
+	if version < 3 {
+		t.Fatalf("migration version = %d, want at least 3", version)
 	}
 }

@@ -43,7 +43,7 @@ func TestHeartbeat(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got != (response{Action: "allow", Message: "ok"}) {
+	if got.Action != "allow" || got.Message != "ok" || !got.Unlimited || got.LeaseSeconds != 90 || got.ServerTime.IsZero() {
 		t.Fatalf("response = %#v", got)
 	}
 	if total := dailyTotalFor(t, app, "barn1", today()); total != 0 {
@@ -71,15 +71,15 @@ func TestHeartbeatUsesServerReceiveTime(t *testing.T) {
 	}
 }
 
-func TestHeartbeatEmptyRequiredFieldsStillAllows(t *testing.T) {
+func TestHeartbeatRejectsEmptyRequiredFields(t *testing.T) {
 	app := testApplication(t)
 	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"","user":"","active_seconds":0}`))
 	rec := httptest.NewRecorder()
 
 	app.heartbeatHandler(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 }
 
@@ -207,8 +207,8 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 
 func TestDashboardShowsKnownUserWithoutTodaysHeartbeat(t *testing.T) {
 	app := testApplication(t)
-	if _, err := app.service.repository.db.Exec(`INSERT INTO heartbeats (reported_at, device_id, user)
-		VALUES (?, ?, ?)`, "2026-09-08T12:00:00+02:00", "pc-barn1", "barn1"); err != nil {
+	previous := time.Date(2026, 9, 8, 12, 0, 0, 0, time.FixedZone("test", 2*3600))
+	if _, err := app.service.addHeartbeat(heartbeat{ReportedAt: previous, DeviceID: "pc-barn1", User: "barn1"}); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
@@ -219,12 +219,12 @@ func TestDashboardShowsKnownUserWithoutTodaysHeartbeat(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	page := rec.Body.String()
-	if !strings.Contains(page, "barn1") || !strings.Contains(page, "0s") || !strings.Contains(page, "2026-09-08T12:00:00") {
+	if !strings.Contains(page, "barn1") || !strings.Contains(page, "0 min") || !strings.Contains(page, "2026-09-08T10:00:00Z") {
 		t.Fatalf("dashboard did not show known inactive user: %s", page)
 	}
 }
 
-func TestOverviewShowsActivityWithoutAdminControls(t *testing.T) {
+func TestOverviewDoesNotExposeActivityOrAdminControls(t *testing.T) {
 	app := testApplication(t)
 	start := time.Now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
@@ -240,7 +240,7 @@ func TestOverviewShowsActivityWithoutAdminControls(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	page := rec.Body.String()
-	if !strings.Contains(page, "barn1") || strings.Contains(page, "Last ned installasjon") || strings.Contains(page, "name=\"hours\"") {
+	if strings.Contains(page, "barn1") || strings.Contains(page, "Last ned installasjon") || strings.Contains(page, "name=\"hours\"") {
 		t.Fatalf("unexpected overview page: %s", page)
 	}
 }

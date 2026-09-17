@@ -1,13 +1,30 @@
 services:
   screengate:
     build: .
+    restart: unless-stopped
+    init: true
     environment:
       DATABASE_PATH: /data/screengate.db
-      ADMIN_PATH: /admin-4539c2c04a617d305f0d02215fc3b746
+      ADMIN_PATH: ${ADMIN_PATH:-/admin}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Opprett .env og sett ADMIN_PASSWORD til minst 12 tegn}
+      SCREENGATE_TIMEZONE: ${SCREENGATE_TIMEZONE:-Europe/Oslo}
     ports:
-      - "8081:8080"
+      - "${SCREENGATE_BIND:-127.0.0.1}:${SCREENGATE_PORT:-8081}:8080"
     volumes:
       - screengate-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   screengate-data:

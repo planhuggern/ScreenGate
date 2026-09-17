@@ -23,6 +23,15 @@ func openRepository(path string) (*repository, error) {
 	if err != nil {
 		return nil, err
 	}
+	// SQLite has one writer. Keeping one connection also gives in-memory
+	// databases and connection-scoped pragmas predictable semantics.
+	db.SetMaxOpenConns(1)
+	for _, pragma := range []string{"PRAGMA busy_timeout = 5000", "PRAGMA journal_mode = WAL", "PRAGMA foreign_keys = ON"} {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	goose.SetBaseFS(migrationFiles)
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		db.Close()
@@ -49,6 +58,9 @@ func (r *repository) userQuota(user string) (int, error) {
 }
 
 func (r *repository) setUserQuota(user string, quota int) error {
+	if !validPolicyUser(user) || quota < 0 || quota > 86400 {
+		return errInvalidPolicy
+	}
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -61,7 +73,7 @@ func (r *repository) setUserQuota(user string, quota int) error {
 		if _, err := tx.Exec("INSERT INTO user_quotas (user, daily_quota_seconds) VALUES (?, ?)", user, quota); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("INSERT INTO user_policy_versions (user, policy_version) VALUES (?, 1)", user); err != nil {
+		if err := bumpPolicyVersion(tx, user); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -70,8 +82,7 @@ func (r *repository) setUserQuota(user string, quota int) error {
 		if _, err := tx.Exec("UPDATE user_quotas SET daily_quota_seconds = ? WHERE user = ?", quota, user); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO user_policy_versions (user, policy_version) VALUES (?, 1)
-			ON CONFLICT(user) DO UPDATE SET policy_version = policy_version + 1`, user); err != nil {
+		if err := bumpPolicyVersion(tx, user); err != nil {
 			return err
 		}
 	}
@@ -88,44 +99,149 @@ func (r *repository) userPolicyVersion(user string) (int, error) {
 }
 
 func (r *repository) addHeartbeat(h heartbeat) error {
-	_, err := r.db.Exec(`INSERT INTO heartbeats (reported_at, device_id, user)
-		VALUES (?, ?, ?)`, h.ReportedAt.Format(time.RFC3339Nano), h.DeviceID, h.User)
-	return err
+	return r.addHeartbeatInLocation(h, time.Local)
+}
+
+func (r *repository) addHeartbeatInLocation(h heartbeat, location *time.Location) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var requestID any
+	var credited any
+	var creditedUntil any
+	accountingTime := h.ReportedAt
+	available := int64(0)
+	if h.HeartbeatID != "" {
+		requestID = h.HeartbeatID
+		var existing int
+		err := tx.QueryRow(`SELECT 1 FROM heartbeats WHERE user = ? AND device_id = ? AND heartbeat_id = ?`, h.User, h.DeviceID, h.HeartbeatID).Scan(&existing)
+		if err == nil {
+			return tx.Commit()
+		}
+		if err != sql.ErrNoRows {
+			return err
+		}
+		var previous string
+		var firstReported int64
+		err = tx.QueryRow(`SELECT reported_at, first_reported_unix, available_milliseconds FROM user_presence WHERE user = ? AND device_id = ?`, h.User, h.DeviceID).Scan(&previous, &firstReported, &available)
+		milliseconds := int64(0)
+		until := h.ReportedAt
+		if err == nil {
+			at, err := time.Parse(time.RFC3339Nano, previous)
+			if err != nil {
+				return err
+			}
+			// Keep unused elapsed time: reports queued during network transit
+			// can arrive back-to-back after acknowledgement and still represent
+			// real usage. The balance bounds cumulative credit by server time.
+			available = min(maxReportedActivity.Milliseconds(), available+max(0, h.ReportedAt.Sub(at).Milliseconds()))
+			milliseconds = min(int64(h.ActiveSeconds)*1000, available)
+			available -= milliseconds
+			if h.ActivityDate != "" {
+				day, err := time.ParseInLocation("2006-01-02", h.ActivityDate, location)
+				if err != nil {
+					return errInvalidHeartbeat
+				}
+				dayEnd := day.AddDate(0, 0, 1)
+				if firstReported >= dayEnd.Unix() && milliseconds > 0 {
+					return errInvalidHeartbeat
+				}
+				if dayEnd.Before(until) {
+					until = dayEnd
+				}
+			}
+		} else if err != sql.ErrNoRows {
+			return err
+		}
+		credited = milliseconds
+		creditedUntil = until.UTC().Format(time.RFC3339Nano)
+		accountingTime = until
+	}
+	state := h.SessionState
+	if state == "" {
+		state = "active"
+	}
+	_, err = tx.Exec(`INSERT INTO heartbeats (reported_at, reported_unix, accounting_unix, device_id, user, heartbeat_id, credited_milliseconds, credited_until, session_state)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, h.ReportedAt.UTC().Format(time.RFC3339Nano), h.ReportedAt.Unix(), accountingTime.Unix(), h.DeviceID, h.User, requestID, credited, creditedUntil, state)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO user_presence (user, device_id, reported_at, reported_unix, first_reported_unix, available_milliseconds, session_state) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user, device_id) DO UPDATE SET reported_at = excluded.reported_at, reported_unix = excluded.reported_unix, available_milliseconds = excluded.available_milliseconds, session_state = excluded.session_state
+		WHERE excluded.reported_unix >= user_presence.reported_unix`, h.User, h.DeviceID, h.ReportedAt.UTC().Format(time.RFC3339Nano), h.ReportedAt.Unix(), h.ReportedAt.Unix(), available, state)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *repository) heartbeatsForUser(user string) ([]recordedHeartbeat, error) {
-	rows, err := r.db.Query(`SELECT device_id, reported_at FROM heartbeats WHERE user = ?`, user)
+	rows, err := r.db.Query(`SELECT device_id, reported_at, credited_milliseconds, credited_until, session_state FROM heartbeats WHERE user = ? ORDER BY reported_unix, id`, user)
 	if err != nil {
 		return nil, err
 	}
+	return scanHeartbeats(rows)
+}
+
+func (r *repository) heartbeatsForUserRange(user string, start, end time.Time) ([]recordedHeartbeat, error) {
+	// Query by the time usage belongs to, not when an offline report arrived.
+	// Even a report retried weeks later stays in the correct day, and the
+	// indexed query is bounded independently of total database history.
+	rows, err := r.db.Query(`SELECT device_id, reported_at, credited_milliseconds, credited_until, session_state FROM heartbeats
+		WHERE user = ? AND accounting_unix >= ? AND accounting_unix <= ? ORDER BY reported_unix, id`,
+		user, start.Add(-maxHeartbeatGap).Unix(), end.Add(maxReportedActivity).Unix())
+	if err != nil {
+		return nil, err
+	}
+	return scanHeartbeats(rows)
+}
+
+func scanHeartbeats(rows *sql.Rows) ([]recordedHeartbeat, error) {
 	defer rows.Close()
 
 	var heartbeats []recordedHeartbeat
 	for rows.Next() {
 		var deviceID, reportedAt string
-		if err := rows.Scan(&deviceID, &reportedAt); err != nil {
+		var credited sql.NullInt64
+		var creditedUntil sql.NullString
+		var state string
+		if err := rows.Scan(&deviceID, &reportedAt, &credited, &creditedUntil, &state); err != nil {
 			return nil, err
 		}
 		timestamp, err := time.Parse(time.RFC3339Nano, reportedAt)
 		if err != nil {
 			return nil, err
 		}
-		heartbeats = append(heartbeats, recordedHeartbeat{deviceID: deviceID, reportedAt: timestamp})
+		sample := recordedHeartbeat{deviceID: deviceID, reportedAt: timestamp, sessionState: state}
+		if credited.Valid {
+			value := credited.Int64
+			sample.creditedMilliseconds = &value
+			if creditedUntil.Valid {
+				sample.creditedUntil, err = time.Parse(time.RFC3339Nano, creditedUntil.String)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		heartbeats = append(heartbeats, sample)
 	}
 	return heartbeats, rows.Err()
 }
 
 func (r *repository) activities() ([]activity, error) {
 	rows, err := r.db.Query(`WITH known_users AS (
-			SELECT user FROM heartbeats
+			SELECT user FROM user_presence
 			UNION
 			SELECT user FROM user_quotas
+			UNION SELECT user FROM user_settings
+			UNION SELECT user FROM weekday_policies
+			UNION SELECT user FROM daily_bonuses
 		)
-		SELECT u.user, COALESCE(MAX(h.reported_at), ''), COALESCE(q.daily_quota_seconds, 0)
+		SELECT u.user, COALESCE((SELECT p.reported_at FROM user_presence p WHERE p.user = u.user ORDER BY p.reported_unix DESC LIMIT 1), ''), COALESCE(q.daily_quota_seconds, 0)
 		FROM known_users u
-		LEFT JOIN heartbeats h ON h.user = u.user
 		LEFT JOIN user_quotas q ON q.user = u.user
-		GROUP BY u.user, q.daily_quota_seconds
 		ORDER BY u.user`)
 	if err != nil {
 		return nil, err

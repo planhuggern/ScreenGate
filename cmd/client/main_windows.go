@@ -1,21 +1,11 @@
 //go:build windows
 
-// Tolker hver
-// heartbeat som blocked=true/false, sender
-// heartbeat straks ved session unlock/logon,
-// og låser når den ferske beslutningen
-// fortsatt er lock.
-
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"flag"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"os/user"
@@ -26,33 +16,19 @@ import (
 	"time"
 )
 
-type heartbeat struct {
-	DeviceID      string    `json:"device_id"`
-	User          string    `json:"user"`
-	ActiveSeconds int       `json:"active_seconds"`
-	ReportedAt    time.Time `json:"reported_at"`
-}
-
-type response struct {
-	Action           string `json:"action"`
-	PolicyVersion    int    `json:"policy_version"`
-	RemainingSeconds int    `json:"remaining_seconds"`
-}
-
-type focusEvent struct {
-	Type          string    `json:"type"`
-	DeviceID      string    `json:"device_id"`
-	User          string    `json:"user"`
-	PreviousApp   string    `json:"previous_app"`
-	ActiveSeconds int       `json:"active_seconds"`
-	Timestamp     time.Time `json:"timestamp"`
-}
-
 var lockWorkStation = syscall.NewLazyDLL("user32.dll").NewProc("LockWorkStation")
 
+func clientDataDir() string {
+	root := os.Getenv("LOCALAPPDATA")
+	if root == "" {
+		root, _ = os.UserConfigDir()
+	}
+	return filepath.Join(root, "ScreenGate")
+}
+
 func configureLogging() {
-	logDir := filepath.Join(os.Getenv("ProgramData"), "ScreenGate")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	logDir := clientDataDir()
+	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return
 	}
 	logPath := filepath.Join(logDir, "client.log")
@@ -60,208 +36,279 @@ func configureLogging() {
 		os.Remove(logPath + ".1")
 		os.Rename(logPath, logPath+".1")
 	}
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err == nil {
 		log.SetOutput(file)
 	}
 }
 
-func postHeartbeat(client *http.Client, endpoint, deviceID, username string, activeSeconds int) (response, error) {
-	body, err := json.Marshal(heartbeat{DeviceID: deviceID, User: username, ActiveSeconds: activeSeconds, ReportedAt: time.Now()})
-	if err != nil {
-		return response{}, err
-	}
-
-	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return response{}, err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	httpResponse, err := client.Do(request)
-	if err != nil {
-		return response{}, err
-	}
-	defer httpResponse.Body.Close()
-
-	var result response
-	if err := json.NewDecoder(httpResponse.Body).Decode(&result); err != nil {
-		return response{}, err
-	}
-	if result.Action != "allow" && result.Action != "lock" {
-		return response{}, errors.New("unknown server action")
-	}
-	return result, nil
-}
-
-func postEvent(client *http.Client, endpoint string, event focusEvent) error {
-	body, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return errors.New("event request failed")
-	}
-	return nil
-}
-
-func flushEvents(client *http.Client, endpoint string, events []focusEvent) []focusEvent {
-	for len(events) > 0 {
-		if err := postEvent(client, endpoint, events[0]); err != nil {
-			return events
-		}
-		events = events[1:]
-	}
-	return events
-}
-
 func newFocusEvent(deviceID, username, app string, activeSeconds int, timestamp time.Time) focusEvent {
-	return focusEvent{
-		Type:          "focus_changed",
-		DeviceID:      deviceID,
-		User:          username,
-		PreviousApp:   app,
-		ActiveSeconds: activeSeconds,
-		Timestamp:     timestamp,
-	}
+	return focusEvent{Type: "focus_changed", DeviceID: deviceID, User: username, PreviousApp: app, ActiveSeconds: activeSeconds, Timestamp: timestamp}
+}
+
+type heartbeatResult struct {
+	response response
+	sentAt   time.Time
+	err      error
 }
 
 func main() {
 	configureLogging()
-	endpoint := flag.String("server", "http://10.0.0.20:8081/heartbeat", "ScreenGate heartbeat URL")
+	configPath := flag.String("config", "", "path to protected installation configuration")
+	endpoint := flag.String("server", "", "ScreenGate heartbeat URL (http(s)://host:port/heartbeat)")
+	token := flag.String("token", "", "device token; prefer -token-file or protected -config")
+	tokenPath := flag.String("token-file", "", "file containing the device token")
+	userFlag := flag.String("user", "", "logical ScreenGate user assigned during pairing")
+	deviceFlag := flag.String("device-id", "", "device ID assigned during pairing")
+	idleTimeout := flag.Duration("idle-timeout", 0, "optional inactivity cutoff, e.g. 5m; 0 counts passive screen use")
+	trackApps := flag.Bool("track-apps", false, "optional foreground application reporting (disabled by default)")
 	debugRemaining := flag.String("debug-remaining", "", "comma-separated remaining_seconds values for warning testing")
 	flag.Parse()
 	if *debugRemaining != "" {
 		runWarningDebug(*debugRemaining)
 		return
 	}
-
-	deviceID, err := os.Hostname()
-	if err != nil {
-		return
+	if *idleTimeout < 0 {
+		log.Fatal("idle-timeout cannot be negative")
 	}
-	currentUser, err := user.Current()
-	if err != nil {
-		return
+	config := clientConfig{Token: strings.TrimSpace(os.Getenv("SCREENGATE_DEVICE_TOKEN"))}
+	if *configPath != "" {
+		var err error
+		config, err = readConfig(*configPath)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
-	report := time.NewTicker(30 * time.Second)
-	focusPoll := time.NewTicker(time.Second)
-	defer report.Stop()
-	defer focusPoll.Stop()
-	eventEndpoint := strings.TrimSuffix(*endpoint, "/heartbeat") + "/event"
-
+	if *endpoint != "" {
+		config.Server = *endpoint
+	}
+	if *token != "" {
+		config.Token = strings.TrimSpace(*token)
+	}
+	if *tokenPath != "" {
+		data, err := os.ReadFile(*tokenPath)
+		if err != nil {
+			log.Fatal("cannot read device token: ", err)
+		}
+		config.Token = strings.TrimSpace(string(data))
+	}
+	if *userFlag != "" {
+		config.User = *userFlag
+	}
+	if *deviceFlag != "" {
+		config.DeviceID = *deviceFlag
+	}
+	if config.DeviceID == "" {
+		var err error
+		config.DeviceID, err = os.Hostname()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	if config.User == "" {
+		currentUser, err := user.Current()
+		if err != nil {
+			log.Fatal(err)
+		}
+		config.User = currentUser.Username
+	}
+	var err error
+	config.Server, err = validateEndpoint(config.Server)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if config.Token == "" {
+		log.Fatal("device token missing; pair this Windows user using install.ps1")
+	}
+	identity := stateIdentity(config.Server, config.DeviceID, config.User)
+	mutex, err := acquireClientMutex(identity)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer closeHandle.Call(mutex)
+	statePath := filepath.Join(clientDataDir(), "state-"+identity[:16]+".json")
+	state, err := loadState(statePath, identity, config.Token, time.Now())
+	if err != nil {
+		log.Printf("saved authorization unavailable: %v", err)
+	}
+	persist := func() bool {
+		if err := saveState(statePath, config.Token, state); err != nil {
+			state.invalidate("state_unavailable")
+			log.Printf("cannot persist authorization: %v", err)
+			return false
+		}
+		return true
+	}
+	persist()
+	client := newHTTPClient()
+	eventEndpoint := strings.TrimSuffix(config.Server, "/heartbeat") + "/event"
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	lastStatus := ""
-	sessionLocked := false
-	state := blockedState{}
+	reportTicker := time.NewTicker(30 * time.Second)
+	pollTicker := time.NewTicker(time.Second)
+	defer reportTicker.Stop()
+	defer pollTicker.Stop()
+	results := make(chan heartbeatResult, 1)
+	eventResults := make(chan error, 1)
+	heartbeatInFlight, eventInFlight := false, false
+	sessionState := "locked"
 	warnings := warningState{}
 	tracker := focusTracker{}
-	pendingEvents := []focusEvent{}
-	sessionEvents := startSessionEvents()
+	meter := activityMeter{}
+	var pendingEvents []focusEvent
+	lastLockAttempt := time.Time{}
+	lastStatus := ""
+	lastPoll := time.Now()
 
-	applyHeartbeat := func() (string, error) {
-		result, err := postHeartbeat(client, *endpoint, deviceID, currentUser.Username, 30)
+	queueEvent := func(app string, seconds int, now time.Time) {
+		if app == "" || seconds <= 0 || !*trackApps {
+			return
+		}
+		if len(pendingEvents) >= 256 {
+			return
+		}
+		pendingEvents = append(pendingEvents, newFocusEvent(config.DeviceID, config.User, app, min(seconds, 86400), now))
+	}
+	flushFocus := func(now time.Time) {
+		if app, seconds, ok := tracker.finish(now); ok {
+			queueEvent(app, seconds, now)
+		}
+	}
+	sendEvent := func() {
+		if eventInFlight || len(pendingEvents) == 0 {
+			return
+		}
+		eventInFlight = true
+		event := pendingEvents[0]
+		go func() {
+			err := postEvent(ctx, client, eventEndpoint, config.Token, event)
+			select {
+			case eventResults <- err:
+			case <-ctx.Done():
+			}
+		}()
+	}
+	sendHeartbeat := func() {
+		if heartbeatInFlight {
+			return
+		}
+		now := time.Now()
+		report, err := state.prepareReport(config.DeviceID, config.User, sessionState, now)
 		if err != nil {
-			return "", err
+			state.invalidate("report_unavailable")
+			log.Printf("report error: %v", err)
+			return
 		}
-		state.applyServerAction(result.Action)
-		warning, policyChanged := warnings.observe(result.PolicyVersion, result.RemainingSeconds)
-		if policyChanged {
-			log.Printf("policy_version=%d changed=true", result.PolicyVersion)
+		if !persist() {
+			return
 		}
-		if warning != nil {
-			log.Printf("screen_time_warning=%d remaining_seconds=%d", warning.threshold, result.RemainingSeconds)
+		heartbeatInFlight = true
+		go func() {
+			result, err := postHeartbeat(ctx, client, config.Server, config.Token, report)
+			select {
+			case results <- heartbeatResult{response: result, sentAt: now, err: err}:
+			case <-ctx.Done():
+			}
+		}()
+	}
+	enforce := func(now time.Time) {
+		if state.allowed(now) || sessionState == "locked" || now.Sub(lastLockAttempt) < 3*time.Second {
+			return
+		}
+		lastLockAttempt = now
+		if ok, _, err := lockWorkStation.Call(); ok == 0 {
+			log.Printf("lock workstation failed: %v", err)
+		}
+	}
+	poll := func(now time.Time) {
+		if now.Sub(lastPoll) > 5*time.Second || now.Before(lastPoll) {
+			flushFocus(lastPoll)
+		}
+		lastPoll = now
+		currentState := currentSessionState(*idleTimeout)
+		seconds := meter.update(currentState == "active", now)
+		state.account(seconds, now)
+		if currentState != "active" {
+			flushFocus(now)
+		} else if *trackApps {
+			if app, err := foregroundApp(); err == nil {
+				if previousApp, activeSeconds, changed := tracker.observe(app, now); changed {
+					queueEvent(previousApp, activeSeconds, now)
+				}
+			}
+		}
+		if currentState != sessionState {
+			log.Printf("session_state=%s", currentState)
+			sessionState = currentState
+			sendHeartbeat()
+		}
+		persist()
+		if warning, _ := warnings.observe(state.PolicyVersion, state.RemainingSeconds); warning != nil && state.Action == "allow" && sessionState == "active" {
 			if err := showWarning(*warning); err != nil {
 				log.Printf("warning error: %v", err)
 			}
 		}
-		return result.Action, nil
+		enforce(now)
 	}
-
-	if action, err := applyHeartbeat(); err != nil {
-		log.Printf("server unavailable: %v", err)
-		lastStatus = "unreachable"
-	} else {
-		log.Printf("server_action=%s blocked=%t", action, state.blocked)
-		lastStatus = action
-		if action == "lock" {
-			lockWorkStation.Call()
-		}
-	}
-
+	// Network operations run separately so a stalled connection cannot stop
+	// local enforcement. A fresh installation reports zero seconds initially.
+	sessionState = currentSessionState(*idleTimeout)
+	meter.update(sessionState == "active", time.Now())
+	sendHeartbeat()
 	for {
 		select {
 		case <-ctx.Done():
-			if app, activeSeconds, ok := tracker.finish(time.Now()); ok {
-				pendingEvents = append(pendingEvents, newFocusEvent(deviceID, currentUser.Username, app, activeSeconds, time.Now()))
-			}
-			flushEvents(client, eventEndpoint, pendingEvents)
-			return
-		case <-focusPoll.C:
-			app, err := foregroundApp()
-			if err != nil {
-				continue
-			}
 			now := time.Now()
-			if previousApp, activeSeconds, changed := tracker.observe(app, now); changed {
-				pendingEvents = append(pendingEvents, newFocusEvent(deviceID, currentUser.Username, previousApp, activeSeconds, now))
-				pendingEvents = flushEvents(client, eventEndpoint, pendingEvents)
+			state.account(meter.update(false, now), now)
+			persist()
+			return
+		case <-pollTicker.C:
+			poll(time.Now())
+		case <-reportTicker.C:
+			if app, seconds, ok := tracker.checkpoint(time.Now()); ok {
+				queueEvent(app, seconds, time.Now())
 			}
-		case sessionEvent, ok := <-sessionEvents:
-			if !ok {
-				sessionEvents = nil
-				continue
+			sendHeartbeat()
+			sendEvent()
+		case err := <-eventResults:
+			eventInFlight = false
+			if err == nil && len(pendingEvents) > 0 {
+				pendingEvents = pendingEvents[1:]
+				sendEvent()
 			}
-			if sessionEvent == "lock" {
-				sessionLocked = true
-				log.Printf("session_event=lock heartbeats_paused=true")
-				continue
-			}
-			sessionLocked = false
-			wasBlocked := state.blocked
-			action, err := applyHeartbeat()
-			if err != nil {
-				log.Printf("session_event=%s heartbeat_error=%v blocked=%t", sessionEvent, err, state.blocked)
-				if wasBlocked && state.lockOnSessionEventWhenHeartbeatFails() {
-					lockWorkStation.Call()
+		case result := <-results:
+			heartbeatInFlight = false
+			now := time.Now()
+			if result.err != nil {
+				if authenticationFailed(result.err) {
+					state.invalidate("authentication_failed")
 				}
-				continue
-			}
-			log.Printf("session_event=%s heartbeat_action=%s blocked=%t", sessionEvent, action, state.blocked)
-			lastStatus = action
-			if action == "lock" {
-				lockWorkStation.Call()
-			}
-		case <-report.C:
-			if sessionLocked {
-				continue
-			}
-			action, err := applyHeartbeat()
-			if err != nil {
 				if lastStatus != "unreachable" {
-					log.Printf("server unavailable: %v", err)
+					log.Printf("server unavailable: %v", result.err)
 					lastStatus = "unreachable"
 				}
-				continue
+			} else {
+				if state.PolicyDate != result.response.PolicyDate {
+					warnings = warningState{}
+				}
+				state.apply(result.response, result.sentAt, now)
+				status := state.Action + ":" + state.Reason
+				if status != lastStatus {
+					log.Printf("server_action=%s reason=%s remaining_seconds=%d", state.Action, state.Reason, state.RemainingSeconds)
+					lastStatus = status
+				}
+				if warning, changed := warnings.observe(state.PolicyVersion, state.RemainingSeconds); warning != nil && state.Action == "allow" && sessionState == "active" {
+					if err := showWarning(*warning); err != nil {
+						log.Printf("warning error: %v", err)
+					}
+				} else if changed {
+					log.Printf("policy_version=%d changed=true", state.PolicyVersion)
+				}
 			}
-			pendingEvents = flushEvents(client, eventEndpoint, pendingEvents)
-			if action != lastStatus {
-				log.Printf("server_action=%s blocked=%t", action, state.blocked)
-				lastStatus = action
-			}
-			if action == "lock" {
-				lockWorkStation.Call()
+			persist()
+			enforce(now)
+			if result.err == nil && state.PendingSeconds > 0 && state.PendingDate != "" && state.PendingDate != state.PolicyDate {
+				sendHeartbeat()
 			}
 		}
 	}
