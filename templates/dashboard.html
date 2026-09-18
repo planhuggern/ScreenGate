@@ -79,6 +79,7 @@
               <span>Ekstra i dag</span><button class="button compact" type="submit" name="minutes" value="15" aria-label="Gi {{.User}} 15 minutter ekstra i dag">+15 min</button><button class="button compact" type="submit" name="minutes" value="30" aria-label="Gi {{.User}} 30 minutter ekstra i dag">+30 min</button>
             </form>
           </div>
+          <details class="danger-zone"><summary>Slett bruker</summary><p class="help">Fjerner kvote, regler, historikk og alle tilkoblede enheter permanent.</p><form method="post" action="{{$.AdminPath}}/user-delete"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}"><input type="hidden" name="confirm" value="delete"><button class="button compact danger" type="submit">Bekreft sletting av {{.User}}</button></form></details>
           {{if .BonusSeconds}}<div class="bonus-note"><span>{{humanDuration .BonusSeconds}} ekstra er lagt til i dag.</span><form method="post" action="{{$.AdminPath}}/user-bonus"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}"><input type="hidden" name="action" value="reset"><button class="text-button" type="submit" aria-label="Fjern dagens ekstratid for {{.User}}">Fjern ekstratid</button></form></div>{{end}}
 
           <details class="rule-editor">

@@ -258,3 +258,17 @@ func (r *repository) activities() ([]activity, error) {
 	}
 	return activities, rows.Err()
 }
+
+func (r *repository) deleteUser(user string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, table := range []string{"pairing_codes", "devices", "user_presence", "daily_bonuses", "weekday_policies", "user_settings", "heartbeats", "user_quotas", "audit_events"} {
+		if _, err := tx.Exec("DELETE FROM "+table+" WHERE user = ?", user); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

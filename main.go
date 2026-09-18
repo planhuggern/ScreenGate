@@ -79,6 +79,7 @@ func (a *application) routes() http.Handler {
 	mux.HandleFunc(a.adminPath+"/user-policy", a.requireAdmin(a.userPolicyHandler))
 	mux.HandleFunc(a.adminPath+"/user-bonus", a.requireAdmin(a.userBonusHandler))
 	mux.HandleFunc(a.adminPath+"/user-pause", a.requireAdmin(a.userPauseHandler))
+	mux.HandleFunc(a.adminPath+"/user-delete", a.requireAdmin(a.userDeleteHandler))
 	mux.HandleFunc(a.adminPath+"/devices/pair", a.requireAdmin(a.pairDeviceHandler))
 	mux.HandleFunc(a.adminPath+"/devices/revoke", a.requireAdmin(a.revokeDeviceHandler))
 	mux.HandleFunc(a.adminPath+"/export.csv", a.requireAdmin(a.exportHandler))

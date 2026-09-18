@@ -62,6 +62,30 @@ func TestAdminControlWorkflow(t *testing.T) {
 	}
 }
 
+func TestAdminDeleteUserRemovesAllUserData(t *testing.T) {
+	a := securedApplication(t)
+	if err := a.service.setUserQuota("remove-me", 3600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.service.repository.db.Exec(`INSERT INTO user_settings(user, paused) VALUES('remove-me', 1); INSERT INTO weekday_policies(user, weekday, quota_seconds, start_minute, end_minute) VALUES('remove-me', 1, 3600, 0, 1440); INSERT INTO daily_bonuses(user, date, seconds) VALUES('remove-me', '2026-09-18', 60); INSERT INTO devices(id, device_id, user, token_hash, created_at) VALUES('remove-device', 'pc', 'remove-me', 'hash', 1); INSERT INTO pairing_codes(code_hash, user, expires_at) VALUES('code', 'remove-me', 9999999999); INSERT INTO audit_events(occurred_at, user, action, detail) VALUES(1, 'remove-me', 'test', 'test')`); err != nil {
+		t.Fatal(err)
+	}
+	post := url.Values{"user": {"remove-me"}, "confirm": {"delete"}}
+	w := serve(a, adminRequest(a, http.MethodPost, a.adminPath+"/user-delete", post))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
+	}
+	for _, table := range []string{"user_quotas", "user_settings", "weekday_policies", "daily_bonuses", "user_presence", "heartbeats", "devices", "pairing_codes", "audit_events"} {
+		var count int
+		if err := a.service.repository.db.QueryRow("SELECT COUNT(*) FROM "+table+" WHERE user = ?", "remove-me").Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("%s still contains deleted user", table)
+		}
+	}
+}
+
 func TestAdminValidationDoesNotChangePolicy(t *testing.T) {
 	a := securedApplication(t)
 	if err := a.service.setUserQuota("child", 3600); err != nil {

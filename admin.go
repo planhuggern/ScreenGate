@@ -132,6 +132,23 @@ func (a *application) userPauseHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, a.adminPath, http.StatusSeeOther)
 }
 
+func (a *application) userDeleteHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := adminUserForm(w, r)
+	if !ok {
+		return
+	}
+	if r.PostForm.Get("confirm") != "delete" {
+		http.Error(w, "confirmation required", http.StatusBadRequest)
+		return
+	}
+	if err := a.service.repository.deleteUser(user); err != nil {
+		log.Printf("delete user %q: %v", user, err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, a.adminPath, http.StatusSeeOther)
+}
+
 func (a *application) pairDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	user, ok := adminUserForm(w, r)
 	if !ok {
