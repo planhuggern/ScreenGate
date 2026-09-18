@@ -91,6 +91,10 @@ func (a *application) routes() http.Handler {
 			log.Printf("cross-origin protection: ignoring invalid trusted origin %q: %v", origin, err)
 		}
 	}
+	protection.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("cross-origin request denied: method=%s host=%q origin=%q sec-fetch-site=%q", r.Method, r.Host, r.Header.Get("Origin"), r.Header.Get("Sec-Fetch-Site"))
+		http.Error(w, "cross-origin request detected, and/or browser is out of date: Sec-Fetch-Site is missing, and Origin does not match Host", http.StatusForbidden)
+	}))
 	return securityHeaders(protection.Handler(mux))
 }
 
