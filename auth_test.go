@@ -267,6 +267,9 @@ func TestPublicLandingHasNoPrivateData(t *testing.T) {
 			t.Fatalf("missing %s", header)
 		}
 	}
+	if got := w.Header().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+		t.Fatalf("Referrer-Policy=%q", got)
+	}
 }
 
 func TestEnrollmentRateLimit(t *testing.T) {
