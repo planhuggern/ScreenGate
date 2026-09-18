@@ -9,6 +9,7 @@
 | `ADMIN_PATH` | `/admin` | Én sti-komponent, for eksempel `/familie`; erstatter ikke innlogging |
 | `DATABASE_PATH` | `screengate.db` | Databasefil; Compose bruker `/data/screengate.db` |
 | `SCREENGATE_TIMEZONE` | `Europe/Oslo` | Tidssone for kalenderdager og ukeplan |
+| `SCREENGATE_TRUSTED_ORIGINS` | Tom | Eksakte origins for reverse proxy, for eksempel `https://screen.example.no` |
 | `LISTEN_ADDR` | `:8080` | Lokal serveradresse |
 | `CLIENT_BINARY_PATH` | `/client/screengate-client.exe` eller lokal fil | Nedlastbar Windows-klient |
 | `SCREENGATE_BIND` | `127.0.0.1` | Compose: hvilken vertsadresse som eksponeres |

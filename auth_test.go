@@ -102,6 +102,17 @@ func TestAdminRejectsMissingCSRFAndCrossOrigin(t *testing.T) {
 	}
 }
 
+func TestConfiguredTrustedOriginAllowsProxyOrigin(t *testing.T) {
+	t.Setenv("SCREENGATE_TRUSTED_ORIGINS", "https://screen.example.no")
+	a := securedApplication(t)
+	r := adminRequest(a, http.MethodPost, a.adminPath+"/user-quota", url.Values{"user": {"child"}, "hours": {"1"}, "minutes": {"0"}})
+	r.Header.Set("Origin", "https://screen.example.no")
+	w := serve(a, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("trusted origin status=%d body=%s", w.Code, w.Body)
+	}
+}
+
 func TestUnauthenticatedDevicesNeverReceiveAllowance(t *testing.T) {
 	a := securedApplication(t)
 	for _, token := range []string{"", "invalid", strings.Repeat("a", 64)} {

@@ -85,7 +85,13 @@ func (a *application) routes() http.Handler {
 	mux.HandleFunc(a.adminPath+"/backup", a.requireAdmin(a.backupHandler))
 	mux.HandleFunc(a.adminPath, a.requireAdmin(a.dashboardHandler))
 	mux.HandleFunc("/", a.overviewHandler)
-	return securityHeaders(http.NewCrossOriginProtection().Handler(mux))
+	protection := http.NewCrossOriginProtection()
+	for _, origin := range configuredTrustedOrigins() {
+		if err := protection.AddTrustedOrigin(origin); err != nil {
+			log.Printf("cross-origin protection: ignoring invalid trusted origin %q: %v", origin, err)
+		}
+	}
+	return securityHeaders(protection.Handler(mux))
 }
 
 func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
@@ -354,6 +360,20 @@ func main() {
 type configuration struct {
 	databasePath, adminPath, adminUser, adminPassword, listenAddr string
 	location                                                      *time.Location
+}
+
+func configuredTrustedOrigins() []string {
+	value := os.Getenv("SCREENGATE_TRUSTED_ORIGINS")
+	if value == "" {
+		return nil
+	}
+	origins := make([]string, 0, 4)
+	for _, item := range strings.Split(value, ",") {
+		if origin := strings.TrimSpace(item); origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
 }
 
 func loadConfiguration() (configuration, error) {

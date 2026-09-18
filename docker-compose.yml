@@ -46,6 +46,7 @@ services:
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Opprett .env og sett ADMIN_PASSWORD til minst 12 tegn}
       SCREENGATE_TIMEZONE: ${SCREENGATE_TIMEZONE:-Europe/Oslo}
+      SCREENGATE_TRUSTED_ORIGINS: ${SCREENGATE_TRUSTED_ORIGINS:-}
     ports:
       - "${SCREENGATE_BIND:-127.0.0.1}:${SCREENGATE_PORT:-8081}:8080"
     volumes:
