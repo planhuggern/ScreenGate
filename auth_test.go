@@ -113,6 +113,24 @@ func TestConfiguredTrustedOriginAllowsProxyOrigin(t *testing.T) {
 	}
 }
 
+func TestNullOriginAdminFormStillRequiresCSRF(t *testing.T) {
+	a := securedApplication(t)
+	r := adminRequest(a, http.MethodPost, a.adminPath+"/user-quota", url.Values{"user": {"child"}, "hours": {"1"}, "minutes": {"0"}})
+	r.Header.Set("Origin", "null")
+	if w := serve(a, r); w.Code != http.StatusSeeOther {
+		t.Fatalf("null-origin admin form status=%d body=%s", w.Code, w.Body)
+	}
+	// adminRequest includes the valid token; replace the body with a request
+	// missing it to ensure the narrow exception does not bypass CSRF.
+	r = httptest.NewRequest(http.MethodPost, a.adminPath+"/user-quota", strings.NewReader("user=child&hours=1&minutes=0"))
+	r.SetBasicAuth(a.adminUser, a.adminPassword)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Origin", "null")
+	if w := serve(a, r); w.Code != http.StatusForbidden {
+		t.Fatalf("null-origin missing CSRF status=%d body=%s", w.Code, w.Body)
+	}
+}
+
 func TestUnauthenticatedDevicesNeverReceiveAllowance(t *testing.T) {
 	a := securedApplication(t)
 	for _, token := range []string{"", "invalid", strings.Repeat("a", 64)} {

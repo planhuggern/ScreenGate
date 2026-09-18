@@ -95,7 +95,17 @@ func (a *application) routes() http.Handler {
 		log.Printf("cross-origin request denied: method=%s host=%q origin=%q sec-fetch-site=%q", r.Method, r.Host, r.Header.Get("Origin"), r.Header.Get("Sec-Fetch-Site"))
 		http.Error(w, "cross-origin request detected, and/or browser is out of date: Sec-Fetch-Site is missing, and Origin does not match Host", http.StatusForbidden)
 	}))
-	return securityHeaders(protection.Handler(mux))
+	protected := protection.Handler(mux)
+	// Some embedded/legacy browser contexts send Origin: null even for a
+	// same-origin form. Admin handlers still enforce Basic Auth and CSRF, so
+	// allow that narrow case while keeping enrollment/device APIs protected.
+	return securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Origin") == "null" && r.Method != http.MethodGet && r.Method != http.MethodHead && strings.HasPrefix(r.URL.Path, a.adminPath+"/") {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		protected.ServeHTTP(w, r)
+	}))
 }
 
 func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
