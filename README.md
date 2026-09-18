@@ -31,9 +31,9 @@ docker compose up --build -d
 
 Standardoppsettet lytter bare på denne maskinen. For PC-er på hjemmenettet må `SCREENGATE_BIND` i `.env` settes til serverens LAN-adresse, eller `0.0.0.0`. Klientene trenger nettverkstilgang til serverporten. Bruk HTTPS via en reverse proxy før du sender passord eller enhetsnøkler over et nettverk du ikke stoler på.
 
-Databasen lagres i Docker-volumet `screengate-data`. Containeren kjører som en vanlig bruker, har skrivebeskyttet rotfilsystem og har en helsesjekk.
+Databasen lagres i Docker-volumet `screengate-data`. Containeren kjører som en vanlig bruker, har skrivebeskyttet rotfilsystem og har en helsesjekk. Før oppstart retter engangscontaineren `data-permissions` automatisk eierskapet til datamappen og eksisterende SQLite-filer.
 
-**Oppgradering fra den gamle utgaven:** Ta sikkerhetskopi først. Den nye serveren krever administratorpassord og klientene må oppdateres og kobles til med engangskode. Et eldre volum kan også trenge ny fileier. Se [drift og oppgradering](docs/OPERATIONS.md).
+**Oppgradering fra den gamle utgaven:** Ta sikkerhetskopi først. Den nye serveren krever administratorpassord og klientene må oppdateres og kobles til med engangskode. Eldre root-eide datavolumer håndteres automatisk ved vanlig Compose-oppstart. Se [drift og oppgradering](docs/OPERATIONS.md).
 
 ## Koble til en Windows-PC
 
@@ -127,6 +127,15 @@ docker build -t screengate:local .
 ```
 
 Testene dekker blant annet innlogging, CSRF, tilkobling og tilbakekalling, kvoter, ukedager, midnatt, sommertid, bonus, samtidige rapporter, offline-omstart og sikkerhetskopi.
+
+Oppgradering fra et root-eid Docker-volum kan testes isolert på Windows:
+
+```powershell
+docker build -t screengate:verification .
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/container-upgrade-smoke.ps1
+```
+
+Testen bruker egne midlertidige containere og et eget volum. Den kontrollerer bevarte kvoter, eierskap, gjentatt oppstart og avvisning av symbolske lenker, og rydder opp testressursene etterpå.
 
 Det finnes også en valgfri nettlesertest med Node 22+ og Playwright:
 

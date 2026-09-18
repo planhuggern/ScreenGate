@@ -1,6 +1,43 @@
 services:
+  data-permissions:
+    image: alpine:3.21
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    read_only: true
+    volumes:
+      - screengate-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    # Upgrade legacy root-owned volumes without running the server as root.
+    # Only the data directory and SQLite files are touched, never recursively.
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        for file in /data/screengate.db /data/screengate.db-wal /data/screengate.db-shm /data/screengate.db-journal; do
+          if [ -L "$$file" ] || { [ -e "$$file" ] && [ ! -f "$$file" ]; }; then
+            echo "Refusing unexpected SQLite file type: $$file" >&2
+            exit 1
+          fi
+        done
+        for file in /data/screengate.db /data/screengate.db-wal /data/screengate.db-shm /data/screengate.db-journal; do
+          if [ -f "$$file" ]; then
+            chown -h 10001:10001 "$$file"
+          fi
+        done
+        chown 10001:10001 /data
+
   screengate:
     build: .
+    depends_on:
+      data-permissions:
+        condition: service_completed_successfully
     restart: unless-stopped
     init: true
     environment:

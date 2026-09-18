@@ -1,0 +1,3 @@
+services:
+  screengate:
+    image: ${SCREENGATE_TEST_IMAGE:-screengate:verification}

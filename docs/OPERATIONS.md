@@ -22,16 +22,16 @@ Foreldreoversikten bruker nettleserens HTTP Basic-dialog. Velg en egen lang pass
 
 1. Stopp den gamle serveren og ta en kopi av hele det vedvarende datavolumet. Ved filbasert kopi må serveren være stoppet; SQLite kan ha nyere data i `-wal`-filen.
 2. Lag `.env` med eget administratorpassord. Den gamle skjulte adminstien kan beholdes gjennom `ADMIN_PATH`.
-3. Den nye containeren kjører som UID/GID `10001`. Hvis det eksisterende volumet er eid av root, endre eierskapet til datamappen og SQLite-filene før normal oppstart:
+3. Start med Compose som vanlig. Engangscontaineren `data-permissions` retter automatisk eierskapet til datamappen og eksisterende SQLite-filer til UID/GID `10001`, også når et eldre volum er eid av root. Serveren starter først når dette er fullført:
 
 ```sh
-docker compose build
-docker compose run --rm --no-deps --user 0 --entrypoint sh screengate -c 'for p in /data /data/screengate.db /data/screengate.db-wal /data/screengate.db-shm; do if [ -e "$p" ]; then chown 10001:10001 "$p"; fi; done'
-docker compose up -d
+docker compose up --build -d
 ```
 
 4. Logg inn, lag en koblingskode per Windows-bruker/enhet og kjør den nye installasjonen. Eksisterende historikk og kvoter migreres automatisk.
 5. Kontroller at alle styrte PC-er viser en nylig rapport, og prøv pause/gjenåpning på en testkonto.
+
+`data-permissions` skal stå som `Exited (0)` i `docker compose ps -a`; det er normalt. Den har ikke nettverk og endrer bare eierskap på `/data` og `screengate.db` med eventuelle `-wal`, `-shm` og `-journal`-filer. Andre filer i volumet berøres ikke. Symbolske lenker og uventede filtyper avvises. Selve serveren kjører fortsatt uten root og uten Linux-kapabiliteter. Ved bruk av `docker run` uten Compose må du selv klargjøre eierskapet til datavolumet.
 
 Gamle klienter har ikke den nye autentiseringen eller offline-håndhevingen. En serveroppgradering alene oppgraderer ikke klientene. Endringene er ikke en automatisk utrulling til PC-ene.
 
@@ -67,6 +67,8 @@ Installasjonen sjekker SHA-256 fra serveren. Dette oppdager en ufullstendig elle
 ## Vanlige feil
 
 **Serveren starter ikke:** Kontroller `ADMIN_PASSWORD`, tidssone og skrivetilgang til databasen. `docker compose logs --tail=100` viser oppstartsfeil. `GET /healthz` skal returnere `{"status":"ok"}`.
+
+**`attempt to write a readonly database` etter oppgradering:** Kjør `docker compose up --build -d` med oppdatert Compose-fil, og kontroller `docker compose logs data-permissions`. Ikke bruk `--no-deps`, siden det hopper over klargjøringen av volumet. Ikke slett datavolumet; det inneholder historikk og innstillinger.
 
 **Ingen rapport fra Windows:** Kontroller serveradresse, valgt Windows-bruker, oppgave i Oppgaveplanlegging og brukerens `client.log`. Oppgaven trenger en interaktiv innlogging. En maskin som sover eller har logget ut rapporterer ikke.
 
