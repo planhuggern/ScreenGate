@@ -93,7 +93,7 @@ func (a *application) routes() http.Handler {
 		}
 	}
 	protection.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("cross-origin request denied: method=%s host=%q origin=%q sec-fetch-site=%q", r.Method, r.Host, r.Header.Get("Origin"), r.Header.Get("Sec-Fetch-Site"))
+		log.Printf("cross-origin request denied: method=%s path=%q host=%q origin=%q sec-fetch-site=%q sec-fetch-mode=%q sec-fetch-dest=%q referer=%q user-agent=%q", r.Method, r.URL.Path, r.Host, r.Header.Get("Origin"), r.Header.Get("Sec-Fetch-Site"), r.Header.Get("Sec-Fetch-Mode"), r.Header.Get("Sec-Fetch-Dest"), r.Referer(), r.UserAgent())
 		http.Error(w, "cross-origin request detected, and/or browser is out of date: Sec-Fetch-Site is missing, and Origin does not match Host", http.StatusForbidden)
 	}))
 	return securityHeaders(protection.Handler(mux))
