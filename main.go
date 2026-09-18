@@ -120,6 +120,7 @@ func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, fl
 		return
 	}
 	model := dashboard{Date: a.service.today(), Activities: activities, AdminPath: a.adminPath, CSRFToken: a.csrfToken, Timezone: a.service.location.String(), Flash: flash, PairingCode: code, PairingUser: user, Devices: devices}
+	model.ClientSHA256, _ = clientChecksum()
 	model.Audit, err = a.recentAudit()
 	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
@@ -207,19 +208,26 @@ func downloadChecksumHandler(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	f, err := os.Open(clientBinaryPath())
+	checksum, err := clientChecksum()
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintf(w, "%s  screengate-client.exe\n", checksum)
+}
+
+func clientChecksum() (string, error) {
+	f, err := os.Open(clientBinaryPath())
+	if err != nil {
+		return "", err
+	}
 	defer f.Close()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		http.Error(w, "checksum unavailable", http.StatusInternalServerError)
-		return
+		return "", err
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "%s  screengate-client.exe\n", hex.EncodeToString(h.Sum(nil)))
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func downloadInstallerHandler(w http.ResponseWriter, r *http.Request) {

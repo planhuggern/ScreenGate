@@ -13,16 +13,17 @@ import (
 var templateFiles embed.FS
 
 type dashboard struct {
-	Date        string
-	Activities  []activity
-	AdminPath   string
-	CSRFToken   string
-	Timezone    string
-	Flash       string
-	PairingCode string
-	PairingUser string
-	Devices     []deviceView
-	Audit       []auditEvent
+	Date         string
+	Activities   []activity
+	AdminPath    string
+	CSRFToken    string
+	Timezone     string
+	Flash        string
+	PairingCode  string
+	PairingUser  string
+	ClientSHA256 string
+	Devices      []deviceView
+	Audit        []auditEvent
 }
 
 type dashboardSummary struct {
