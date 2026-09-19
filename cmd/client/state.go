@@ -18,9 +18,13 @@ const maxLeaseSeconds = 120
 // The absolute expiry survives restarts. Keeping a separate pending report makes
 // a retry idempotent even when the server applied it but its response was lost.
 type clientState struct {
-	Identity         string     `json:"identity"`
-	Action           string     `json:"action"`
-	Reason           string     `json:"reason"`
+	Identity string `json:"identity"`
+	Action   string `json:"action"`
+	Reason   string `json:"reason"`
+	// ServerContacted distinguishes a fresh/unprovisioned client from a
+	// client that has received an explicit server decision. A fresh client
+	// must not lock the user out while its first heartbeat is in flight.
+	ServerContacted  bool       `json:"server_contacted"`
 	PolicyVersion    int        `json:"policy_version"`
 	PolicyDate       string     `json:"policy_date"`
 	QuotaSeconds     int        `json:"quota_seconds"`
@@ -44,6 +48,11 @@ func stateIdentity(endpoint, deviceID, username string) string {
 }
 
 func (s *clientState) allowed(now time.Time) bool {
+	// Fail open until the server has made at least one valid decision. This
+	// covers startup, pairing races, and a temporarily unreachable server.
+	if !s.ServerContacted {
+		return true
+	}
 	if now.Before(s.UpdatedAt) {
 		s.invalidate("clock_changed")
 	}
@@ -54,6 +63,14 @@ func (s *clientState) invalidate(reason string) {
 	s.Action = "lock"
 	s.Reason = reason
 	s.LeaseExpiresAt = time.Time{}
+}
+
+func (s *clientState) markServerUnavailable() {
+	s.ServerContacted = false
+	s.Action = "allow"
+	s.Reason = "server_unavailable"
+	s.LeaseExpiresAt = time.Time{}
+	s.ScheduledLockAt = time.Time{}
 }
 
 func (s clientState) warningRemaining(now time.Time) int {
@@ -103,6 +120,7 @@ func (s *clientState) prepareReport(deviceID, username, sessionState string, now
 
 func (s *clientState) apply(result response, sentAt, receivedAt time.Time) {
 	s.Report = nil
+	s.ServerContacted = true
 	s.Action = result.Action
 	s.Reason = result.Reason
 	s.PolicyVersion = result.PolicyVersion
@@ -147,29 +165,44 @@ func loadState(path, identity, token string, now time.Time) (clientState, error)
 		return initial, nil
 	}
 	if err != nil {
+		// A state file that exists but cannot be authenticated or read is not
+		// equivalent to a fresh install. Keep this fail-closed.
+		initial.ServerContacted = true
 		return initial, err
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil || info.Size() > 64*1024 {
+		initial.ServerContacted = true
 		return initial, errors.New("invalid state file size")
 	}
 	var envelope stateEnvelope
 	if err := json.NewDecoder(file).Decode(&envelope); err != nil {
+		initial.ServerContacted = true
 		return initial, fmt.Errorf("invalid state: %w", err)
 	}
 	if !hmac.Equal([]byte(envelope.MAC), []byte(stateMAC(envelope.State, token))) {
+		initial.ServerContacted = true
 		return initial, errors.New("saved state authentication failed")
 	}
 	var state clientState
 	if err := json.Unmarshal(envelope.State, &state); err != nil {
+		initial.ServerContacted = true
 		return initial, err
 	}
 	if state.Identity != identity || state.PendingSeconds < 0 || state.PendingSeconds > 86400 || state.RemainingSeconds < 0 || state.QuotaSeconds < 0 || (state.Action != "allow" && state.Action != "lock") {
+		initial.ServerContacted = true
 		return initial, errors.New("saved state does not match this client")
 	}
 	if state.Report != nil && (state.Report.HeartbeatID == "" || state.Report.ActiveSeconds < 0 || state.Report.ActiveSeconds > 86400) {
+		initial.ServerContacted = true
 		return initial, errors.New("invalid pending report")
+	}
+	// Migrate state files written before ServerContacted existed. The old
+	// initial state was lock/awaiting_server with no lease; all other valid
+	// states represent a prior server decision.
+	if !state.ServerContacted {
+		state.ServerContacted = !(state.Action == "lock" && state.Reason == "awaiting_server" && state.LeaseExpiresAt.IsZero())
 	}
 	state.allowed(now)
 	return state, nil

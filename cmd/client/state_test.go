@@ -9,10 +9,29 @@ import (
 
 func testMoment() time.Time { return time.Date(2026, 9, 18, 14, 0, 0, 0, time.UTC) }
 
-func TestFreshClientRequiresServerAuthorization(t *testing.T) {
+func TestFreshClientAllowsUntilServerAuthorization(t *testing.T) {
 	state, err := loadState(filepath.Join(t.TempDir(), "missing.json"), "identity", "secret", testMoment())
-	if err != nil || state.allowed(testMoment()) {
-		t.Fatalf("fresh state allowed=%v, err=%v", state.allowed(testMoment()), err)
+	if err != nil || !state.allowed(testMoment()) || state.ServerContacted {
+		t.Fatalf("fresh state allowed=%v, contacted=%v, err=%v", state.allowed(testMoment()), state.ServerContacted, err)
+	}
+}
+
+func TestExplicitServerLockIsStillEnforcedOffline(t *testing.T) {
+	now := testMoment()
+	state := clientState{}
+	state.apply(response{Action: "lock", Reason: "quota_exhausted", LeaseSeconds: 90}, now, now)
+	if state.allowed(now.Add(time.Second)) {
+		t.Fatal("explicit server lock was bypassed")
+	}
+}
+
+func TestServerUnavailableFailsOpen(t *testing.T) {
+	now := testMoment()
+	state := clientState{}
+	state.apply(response{Action: "lock", Reason: "quota_exhausted", LeaseSeconds: 90}, now, now)
+	state.markServerUnavailable()
+	if !state.allowed(now.Add(time.Hour)) || state.Reason != "server_unavailable" {
+		t.Fatal("server outage did not fail open")
 	}
 }
 
@@ -107,7 +126,7 @@ func TestMidnightPendingUsageKeepsOriginalPolicyDate(t *testing.T) {
 func TestStateRejectsDifferentIdentityTokenAndTampering(t *testing.T) {
 	now := testMoment()
 	path := filepath.Join(t.TempDir(), "state.json")
-	state := clientState{Identity: "one", Action: "allow", UpdatedAt: now, LeaseExpiresAt: now.Add(time.Minute)}
+	state := clientState{Identity: "one", Action: "allow", ServerContacted: true, UpdatedAt: now, LeaseExpiresAt: now.Add(time.Minute)}
 	if err := saveState(path, "secret", state); err != nil {
 		t.Fatal(err)
 	}

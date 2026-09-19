@@ -282,6 +282,10 @@ func main() {
 			if result.err != nil {
 				if authenticationFailed(result.err) {
 					state.invalidate("authentication_failed")
+				} else {
+					// No usable server decision is available. Fail open so a
+					// startup/network outage cannot lock the user out.
+					state.markServerUnavailable()
 				}
 				if lastStatus != "unreachable" {
 					log.Printf("server unavailable: %v", result.err)
