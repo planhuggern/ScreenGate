@@ -55,6 +55,8 @@ type heartbeatResult struct {
 func main() {
 	configureLogging()
 	configPath := flag.String("config", "", "path to protected installation configuration")
+	testMode := flag.Bool("test-mode", false, "force safe test mode: never lock Windows")
+	enableLocking := flag.Bool("enable-locking", false, "explicitly enable Windows locking")
 	endpoint := flag.String("server", "", "ScreenGate heartbeat URL (http(s)://host:port/heartbeat)")
 	token := flag.String("token", "", "device token; prefer -token-file or protected -config")
 	tokenPath := flag.String("token-file", "", "file containing the device token")
@@ -120,6 +122,8 @@ func main() {
 	if config.Token == "" {
 		log.Fatal("device token missing; pair this Windows user using install.ps1")
 	}
+	guard := enforcement{enabled: (config.EnableLocking || *enableLocking) && !*testMode}
+	log.Printf("test_mode=%t locking_enabled=%t", !guard.enabled, guard.enabled)
 	identity := stateIdentity(config.Server, config.DeviceID, config.User)
 	mutex, err := acquireClientMutex(identity)
 	if err != nil {
@@ -156,7 +160,6 @@ func main() {
 	tracker := focusTracker{}
 	meter := activityMeter{}
 	var pendingEvents []focusEvent
-	lastLockAttempt := time.Time{}
 	lastStatus := ""
 	lastPoll := time.Now()
 
@@ -212,13 +215,13 @@ func main() {
 		}()
 	}
 	enforce := func(now time.Time) {
-		if state.allowed(now) || sessionState == "locked" || now.Sub(lastLockAttempt) < 3*time.Second {
-			return
-		}
-		lastLockAttempt = now
-		if ok, _, err := lockWorkStation.Call(); ok == 0 {
-			log.Printf("lock workstation failed: %v", err)
-		}
+		guard.poll(!state.allowed(now) && sessionState != "locked", now, func() {
+			if ok, _, err := lockWorkStation.Call(); ok == 0 {
+				log.Printf("lock workstation failed: %v", err)
+			}
+		}, func() {
+			log.Printf("test_mode=true would_lock=true action=%s reason=%s remaining_seconds=%d", state.Action, state.Reason, state.RemainingSeconds)
+		})
 	}
 	poll := func(now time.Time) {
 		if now.Sub(lastPoll) > 5*time.Second || now.Before(lastPoll) {
@@ -292,6 +295,9 @@ func main() {
 					lastStatus = "unreachable"
 				}
 			} else {
+				if !guard.enabled {
+					log.Printf("test_mode=true heartbeat_ok=true")
+				}
 				if state.PolicyDate != result.response.PolicyDate {
 					warnings = warningState{}
 				}

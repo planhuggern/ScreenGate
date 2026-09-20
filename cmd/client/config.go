@@ -9,10 +9,11 @@ import (
 )
 
 type clientConfig struct {
-	Server   string `json:"server"`
-	Token    string `json:"token"`
-	DeviceID string `json:"device_id"`
-	User     string `json:"user"`
+	EnableLocking bool   `json:"enable_locking"`
+	Server        string `json:"server"`
+	Token         string `json:"token"`
+	DeviceID      string `json:"device_id"`
+	User          string `json:"user"`
 }
 
 func readConfig(path string) (clientConfig, error) {

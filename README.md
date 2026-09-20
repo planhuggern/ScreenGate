@@ -57,6 +57,12 @@ Koden varer i 15 minutter og kan brukes én gang. Navnet du valgte i foreldreove
 
 Installasjonen kontrollerer nedlastingens SHA-256, lagrer konfigurasjonen med begrensede Windows-rettigheter og oppretter én oppstartsoppgave per Windows-bruker. Oppgradering uten ny kode beholder eksisterende tilkobling. `-SkipStart` utsetter oppstart til neste innlogging.
 
+Klienten installeres som standard i **testmodus uten låsing**, også etter omstart. Paring og tidsregistrering fungerer normalt og bruker av kvoten på serveren. Loggen viser `test_mode=true`, `heartbeat_ok=true` ved mottatte svar og `would_lock=true` når klienten ville ha låst. Du kan teste oppbrukt kvote og nettbrudd uten at denne klienten låser Windows.
+
+Installasjonsveiviseren spør om modus: velg **1 – Testmodus** (eller trykk Enter) for tidsregistrering uten låsing, eller **2 – Aktiver låsing** for faktisk låsing. Når testen fungerer, kan du kjøre skriptet på nytt og velge 2; ingen ekstra argumenter er nødvendige. Menyen vises også ved oppgradering, med testmodus som standard. Ved manuell klientstart er låsing av som standard; `-test-mode` overstyrer også en konfigurasjon med låsing aktivert. Gamle konfigurasjoner uten `enable_locking` starter i testmodus.
+
+Serveren må bygges og startes på nytt før det oppdaterte installasjonsskriptet lastes ned (med Docker Compose: `docker compose up --build -d`). Bruk det nye skriptet; gamle skript har ikke beskyttelsen. Det nye skriptet gir klienten et eksplisitt modusflagg, slik at eldre klienter uten støtte avslutter i stedet for å ignorere testmodus.
+
 Klienten logger i den styrte brukerens **%LOCALAPPDATA%\ScreenGate\client.log**. Konfigurasjonen ligger i **C:\ProgramData\ScreenGate\<Windows-SID>\client.json**.
 
 ### Avinstallering

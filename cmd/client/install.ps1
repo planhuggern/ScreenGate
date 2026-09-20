@@ -56,6 +56,22 @@ $configDir = Join-Path $configRoot $userSid.Value
 $configPath = Join-Path $configDir 'client.json'
 $taskName = "ScreenGate Client $($userSid.Value)"
 
+# Stop old clients before inspecting configuration or asking for a new
+# pairing code. An existing logon task must not enforce the old state while
+# the administrator is still preparing this installation.
+$stoppedTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+    $_.TaskName -like 'ScreenGate Client*' -and @($_.Actions | Where-Object { $_.Execute -eq $clientPath }).Count -gt 0
+})
+foreach ($existingTask in $stoppedTasks) {
+    Stop-ScheduledTask -InputObject $existingTask -ErrorAction SilentlyContinue
+    Disable-ScheduledTask -InputObject $existingTask -ErrorAction SilentlyContinue | Out-Null
+}
+# Deleting a Scheduled Task or exe does not terminate a process it already
+# started. The process may still be resident even when ExecutablePath is no
+# longer queryable, so use the unique ScreenGate process name here.
+Get-Process -Name 'screengate-client' -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+
 # Preserve pairing on upgrades; a new code deliberately replaces this user's pairing.
 $configuration = $null
 if (-not $EnrollmentCode -and (Test-Path -LiteralPath $configPath)) {
@@ -69,25 +85,24 @@ if (-not $configuration -and -not $EnrollmentCode) {
 }
 if (-not $configuration -and -not $EnrollmentCode) { throw 'En paringskode er pakrevd.' }
 
+Write-Host 'Velg modus for ScreenGate:'
+Write-Host '[1] Testmodus - registrer tidsbruk uten a lase Windows (standard)'
+Write-Host '[2] Aktiver lasing - Windows kan lases nar kvoten eller reglene krever det'
+do {
+    $modeSelection = (Read-Host 'Valg [1]').Trim()
+    if ($modeSelection -notin @('', '1', '2')) {
+        Write-Host 'Ugyldig valg. Skriv 1 eller 2, eller trykk Enter for testmodus.'
+    }
+} while ($modeSelection -notin @('', '1', '2'))
+$EnableLocking = $modeSelection -eq '2'
+
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 $temporaryClientPath = Join-Path $installDir ('.client-' + [Guid]::NewGuid().ToString('N') + '.exe')
 $backupClientPath = Join-Path $installDir ('.backup-' + [Guid]::NewGuid().ToString('N') + '.exe')
-$stoppedTasks = @()
 $binaryReplaced = $false
 $completed = $false
 $preserveBackup = $false
 try {
-    # Stop old clients before downloading or asking for a new pairing code.
-    # An existing logon task may otherwise continue enforcing the old state
-    # while the administrator is still preparing this installation.
-    $stoppedTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
-        $_.TaskName -like 'ScreenGate Client*' -and @($_.Actions | Where-Object { $_.Execute -eq $clientPath }).Count -gt 0
-    })
-    foreach ($existingTask in $stoppedTasks) {
-        Stop-ScheduledTask -InputObject $existingTask -ErrorAction SilentlyContinue
-        Disable-ScheduledTask -InputObject $existingTask -ErrorAction SilentlyContinue | Out-Null
-    }
-
     # Download and validate before replacing an existing installation.
     Invoke-WebRequest -UseBasicParsing -Uri $clientUrl -OutFile $temporaryClientPath -TimeoutSec 60 -MaximumRedirection 0
     if (-not $ExpectedSha256) {
@@ -126,6 +141,9 @@ try {
     $readRule = New-Object Security.AccessControl.FileSystemAccessRule($userSid, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
     $acl.AddAccessRule($readRule)
     Set-Acl -LiteralPath $configDir -AclObject $acl
+    # Reinstalling without explicit opt-in always returns to safe test mode.
+    $configuration = [pscustomobject]$configuration
+    $configuration | Add-Member -NotePropertyName enable_locking -NotePropertyValue ([bool]$EnableLocking) -Force
     $configJson = $configuration | ConvertTo-Json -Compress
     # Explicit UTF-8 without BOM also works in Windows PowerShell 5.1.
     [IO.File]::WriteAllText($configPath, $configJson, (New-Object Text.UTF8Encoding($false)))
@@ -145,7 +163,11 @@ try {
         }
     }
 
-    $action = New-ScheduledTaskAction -Execute $clientPath -Argument ('-config "' + $configPath + '"') -WorkingDirectory $installDir
+    # Explicit flags also make an older client exit on an unknown flag instead
+    # of silently ignoring the new configuration and enabling locking.
+    $modeArgument = '-test-mode'
+    if ($EnableLocking) { $modeArgument = '-enable-locking' }
+    $action = New-ScheduledTaskAction -Execute $clientPath -Argument ($modeArgument + ' -config "' + $configPath + '"') -WorkingDirectory $installDir
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $User
     $taskPrincipal = New-ScheduledTaskPrincipal -UserId $User -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
@@ -160,6 +182,11 @@ try {
     if (-not $SkipStart) { Start-ScheduledTask -TaskName $taskName }
     $completed = $true
     Write-Host "ScreenGate er installert for $User (ScreenGate-bruker: $($configuration.user))."
+    if ($EnableLocking) {
+        Write-Host 'Lasing er AKTIVERT.'
+    } else {
+        Write-Host 'TESTMODUS: ScreenGate registrerer tidsbruk, men laser ikke Windows, heller ikke etter omstart.'
+    }
     Write-Host 'Logg: %LOCALAPPDATA%\ScreenGate\client.log i den valgte brukerens profil.'
     if ($SkipStart) { Write-Host 'Klienten starter ved neste innlogging.' }
 } finally {
