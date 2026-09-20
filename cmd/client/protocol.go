@@ -55,6 +55,7 @@ func authenticationFailed(err error) bool {
 }
 
 func validateEndpoint(endpoint string) (string, error) {
+	endpoint = strings.TrimSpace(endpoint)
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", errors.New("server must be an http(s) URL without credentials, query or fragment")

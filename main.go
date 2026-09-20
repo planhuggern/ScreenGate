@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"embed"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -247,6 +249,26 @@ func downloadScript(w http.ResponseWriter, r *http.Request, name string) {
 		http.Error(w, "installer unavailable", http.StatusInternalServerError)
 		return
 	}
+	if name == "install.ps1" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		// A configured public origin supplies the external scheme behind a
+		// reverse proxy. Do not take an arbitrary forwarded host as the server.
+		for _, origin := range configuredTrustedOrigins() {
+			u, err := url.Parse(origin)
+			if err == nil && strings.EqualFold(u.Host, r.Host) && u.User == nil && (u.Scheme == "http" || u.Scheme == "https") {
+				scheme = u.Scheme
+				break
+			}
+		}
+		endpoint := (&url.URL{Scheme: scheme, Host: r.Host, Path: "/heartbeat"}).String()
+		// Encode request data rather than interpolating it as PowerShell code.
+		defaultValue := "([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + base64.StdEncoding.EncodeToString([]byte(endpoint)) + "')))"
+		data = bytes.Replace(data, []byte("''<# SCREENGATE_SERVER_DEFAULT #>"), []byte(defaultValue), 1)
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", "attachment; filename="+name)
 	_, _ = w.Write(data)

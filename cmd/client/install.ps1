@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$ServerUrl,
+    [string]$ServerUrl = ''<# SCREENGATE_SERVER_DEFAULT #>,
     [string]$EnrollmentCode,
     [string]$User,
     [ValidatePattern('^$|^[a-fA-F0-9]{64}$')]
@@ -18,6 +18,8 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 if (-not $ServerUrl) {
     $ServerUrl = Read-Host 'ScreenGate-adresse, for eksempel http://192.168.1.10:8081/heartbeat'
 }
+$ServerUrl = $ServerUrl.Trim()
+Write-Host "ScreenGate-server: $ServerUrl"
 $serverUri = [Uri]$ServerUrl
 if (-not $serverUri.IsAbsoluteUri -or $serverUri.Scheme -notin @('http', 'https') -or
     $serverUri.AbsolutePath -ne '/heartbeat' -or $serverUri.UserInfo -or $serverUri.Query -or $serverUri.Fragment) {
@@ -76,6 +78,7 @@ Get-Process -Name 'screengate-client' -ErrorAction SilentlyContinue |
 $configuration = $null
 if (-not $EnrollmentCode -and (Test-Path -LiteralPath $configPath)) {
     $configuration = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $configuration.server = ([string]$configuration.server).Trim()
     if ($configuration.server -ne $ServerUrl -or -not $configuration.token -or -not $configuration.device_id -or -not $configuration.user) {
         throw 'Eksisterende paring passer ikke til denne serveren. Oppgi en ny -EnrollmentCode.'
     }

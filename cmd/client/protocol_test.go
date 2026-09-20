@@ -84,6 +84,12 @@ func TestHTTPClientDoesNotForwardCredentialsThroughRedirect(t *testing.T) {
 }
 
 func TestValidateEndpoint(t *testing.T) {
+	for _, value := range []string{" http://10.0.0.20:8081/heartbeat", "\t http://10.0.0.20:8081/heartbeat \r\n"} {
+		got, err := validateEndpoint(value)
+		if err != nil || got != "http://10.0.0.20:8081/heartbeat" {
+			t.Fatalf("padded endpoint: got=%q err=%v", got, err)
+		}
+	}
 	for _, value := range []string{"http://localhost:8081/heartbeat", "https://example.test/heartbeat", "http://[::1]:8081/heartbeat"} {
 		if _, err := validateEndpoint(value); err != nil {
 			t.Errorf("valid URL %q: %v", value, err)
