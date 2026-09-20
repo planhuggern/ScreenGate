@@ -77,7 +77,18 @@ $binaryReplaced = $false
 $completed = $false
 $preserveBackup = $false
 try {
-    # Download and validate before stopping an existing installation.
+    # Stop old clients before downloading or asking for a new pairing code.
+    # An existing logon task may otherwise continue enforcing the old state
+    # while the administrator is still preparing this installation.
+    $stoppedTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+        $_.TaskName -like 'ScreenGate Client*' -and @($_.Actions | Where-Object { $_.Execute -eq $clientPath }).Count -gt 0
+    })
+    foreach ($existingTask in $stoppedTasks) {
+        Stop-ScheduledTask -InputObject $existingTask -ErrorAction SilentlyContinue
+        Disable-ScheduledTask -InputObject $existingTask -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    # Download and validate before replacing an existing installation.
     Invoke-WebRequest -UseBasicParsing -Uri $clientUrl -OutFile $temporaryClientPath -TimeoutSec 60 -MaximumRedirection 0
     if (-not $ExpectedSha256) {
         $checksum = (Invoke-WebRequest -UseBasicParsing -Uri "$clientUrl.sha256" -TimeoutSec 20 -MaximumRedirection 0).Content
@@ -119,10 +130,6 @@ try {
     # Explicit UTF-8 without BOM also works in Windows PowerShell 5.1.
     [IO.File]::WriteAllText($configPath, $configJson, (New-Object Text.UTF8Encoding($false)))
 
-    $stoppedTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
-        $_.TaskName -like 'ScreenGate Client*' -and @($_.Actions | Where-Object { $_.Execute -eq $clientPath }).Count -gt 0
-    })
-    foreach ($existingTask in $stoppedTasks) { Stop-ScheduledTask -InputObject $existingTask }
     for ($attempt = 1; $attempt -le 10; $attempt++) {
         try {
             if (Test-Path -LiteralPath $clientPath) {
@@ -162,10 +169,8 @@ try {
             Write-Warning "Gjenoppretting feilet. Gammel klient er bevart i $backupClientPath. $($_.Exception.Message)"
         }
     }
-    if (-not $completed) {
-        foreach ($existingTask in $stoppedTasks) {
-            try { Start-ScheduledTask -InputObject $existingTask } catch { Write-Warning "Kunne ikke starte oppgaven $($existingTask.TaskName) igjen." }
-        }
+    if (-not $completed -and $stoppedTasks.Count -gt 0) {
+        Write-Warning 'Eksisterende ScreenGate-oppgaver er holdt stoppet etter en mislykket installasjon for å unnga umiddelbar utelasing.'
     }
     foreach ($temporary in @($temporaryClientPath, $backupClientPath)) {
         if ($temporary -eq $backupClientPath -and $preserveBackup) { continue }
