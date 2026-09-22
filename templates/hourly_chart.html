@@ -4,7 +4,7 @@
   <p class="hourly-scale">Minutter · skala 0–{{.HourlyChart.MaximumMinutes}}</p>
   <div class="hourly-scroll" tabindex="0" role="region" aria-label="Timeoversikt for {{.User}}. Rull sidelengs for å se alle timer.">
     <ol class="hourly-bars">
-      {{range .HourlyChart.Bars}}<li class="hourly-column" title="{{.Range}}: {{.Minutes}} min"><span class="hourly-value">{{.Minutes}}</span><div class="hourly-track" aria-hidden="true"><div class="hourly-bar" style="--bar:{{.Height}}%"></div></div><span class="hourly-label" aria-hidden="true">{{.Label}}</span><span class="sr-only"> minutter, klokken {{.Range}}</span></li>{{end}}
+      {{range .HourlyChart.Bars}}<li class="hourly-column" title="{{.Range}}: {{.Minutes}} min"><div class="hourly-track" aria-hidden="true"><div class="hourly-bar" style="--bar:{{.Height}}%"></div></div><span class="hourly-label" aria-hidden="true">{{.Label}}</span><span class="sr-only">{{.Minutes}} minutter, klokken {{.Range}}</span></li>{{end}}
     </ol>
   </div>
   {{if .HourlyChart.Empty}}<p class="help">Ingen registrert skjermtid i dag.</p>{{end}}
