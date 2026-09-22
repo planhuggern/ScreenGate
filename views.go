@@ -27,20 +27,33 @@ type dashboard struct {
 }
 
 type dashboardSummary struct {
+	TotalSeconds   int
+	Online         int
+	Paused         int
+	Limited        int
+	WeekSeconds    int
+	DailyAverage   int
+	Days           []historyBar
+	Legend         []weeklySeries
+	MaximumSeconds int
+}
+
+type weeklySeries struct {
+	User  string
+	Color int
+}
+
+type weeklyUserBar struct {
+	weeklySeries
 	TotalSeconds int
-	Online       int
-	Paused       int
-	Limited      int
-	WeekSeconds  int
-	DailyAverage int
-	Days         []historyBar
+	Height       float64
 }
 
 type historyBar struct {
 	Date         string
 	Label        string
 	TotalSeconds int
-	Height       int
+	Bars         []weeklyUserBar
 	Today        bool
 }
 
@@ -65,7 +78,11 @@ type ruleDay struct {
 func (d dashboard) Summary() dashboardSummary {
 	var result dashboardSummary
 	dailyTotals := make(map[string]int)
-	for _, item := range d.Activities {
+	userTotals := make([]map[string]int, len(d.Activities))
+	for index, item := range d.Activities {
+		// Golden-angle hues keep each user's color consistent across the week.
+		result.Legend = append(result.Legend, weeklySeries{User: item.User, Color: (index*137 + 140) % 360})
+		userTotals[index] = make(map[string]int)
 		result.TotalSeconds += item.TotalSeconds
 		if item.Online {
 			result.Online++
@@ -78,13 +95,15 @@ func (d dashboard) Summary() dashboardSummary {
 		}
 		for _, day := range item.History {
 			dailyTotals[day.Date] += day.TotalSeconds
+			userTotals[index][day.Date] += day.TotalSeconds
 		}
+		userTotals[index][d.Date] = item.TotalSeconds
 	}
 	end, err := time.Parse("2006-01-02", d.Date)
 	if err != nil {
 		end = time.Now()
 	}
-	maximum := 1
+	result.MaximumSeconds = 3600
 	for offset := -6; offset <= 0; offset++ {
 		date := end.AddDate(0, 0, offset)
 		key := date.Format("2006-01-02")
@@ -93,11 +112,19 @@ func (d dashboard) Summary() dashboardSummary {
 			total = result.TotalSeconds
 		}
 		result.WeekSeconds += total
-		maximum = max(maximum, total)
-		result.Days = append(result.Days, historyBar{Date: key, Label: shortWeekdays[date.Weekday()], TotalSeconds: total, Today: offset == 0})
+		group := historyBar{Date: key, Label: shortWeekdays[date.Weekday()], TotalSeconds: total, Today: offset == 0}
+		for index, series := range result.Legend {
+			seconds := userTotals[index][key]
+			result.MaximumSeconds = max(result.MaximumSeconds, ((seconds+1799)/1800)*1800)
+			group.Bars = append(group.Bars, weeklyUserBar{weeklySeries: series, TotalSeconds: seconds})
+		}
+		result.Days = append(result.Days, group)
 	}
 	for i := range result.Days {
-		result.Days[i].Height = int(float64(result.Days[i].TotalSeconds) / float64(maximum) * 100)
+		for j := range result.Days[i].Bars {
+			bar := &result.Days[i].Bars[j]
+			bar.Height = float64(bar.TotalSeconds) / float64(result.MaximumSeconds) * 100
+		}
 	}
 	result.DailyAverage = result.WeekSeconds / 7
 	return result

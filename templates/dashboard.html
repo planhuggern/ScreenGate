@@ -120,10 +120,14 @@
 
     <div class="bottom-grid">
       <section class="weekly panel" id="week" aria-labelledby="week-heading">
-        <div class="weekly-header"><div><h2 id="week-heading">De siste 7 dagene</h2><p>Familiens samlede skjermtid</p></div><div class="week-number">{{humanDuration $summary.WeekSeconds}}<small>til sammen</small></div></div>
-        <figure class="chart" aria-label="Skjermtid per dag de siste syv dagene">
-          <ol class="bars">{{range $summary.Days}}<li class="bar-column{{if .Today}} is-today{{end}}"><span class="bar-value">{{humanDuration .TotalSeconds}}</span><div class="bar-track" aria-hidden="true"><div class="bar{{if .Today}} today{{end}}" style="--bar:{{.Height}}%"></div></div><time class="bar-label" datetime="{{.Date}}">{{if .Today}}I dag{{else}}{{.Label}}{{end}}</time></li>{{end}}</ol>
-          <figcaption class="chart-note">Gjennomsnitt: <strong>{{humanDuration $summary.DailyAverage}}</strong> per dag. Inkluderer i dag.</figcaption>
+        <div class="weekly-header"><div><h2 id="week-heading">De siste 7 dagene</h2><p>Skjermtid per barn og dag</p></div><div class="week-number">{{humanDuration $summary.WeekSeconds}}<small>til sammen</small></div></div>
+        <figure class="chart" aria-label="Skjermtid per barn og dag de siste syv dagene">
+          <ul class="weekly-legend" aria-label="Farger per barn">{{range $summary.Legend}}<li><span class="weekly-swatch" style="--series:{{.Color}}" aria-hidden="true"></span>{{.User}}</li>{{end}}</ul>
+          <p class="help">Felles skala: 0–{{humanDuration $summary.MaximumSeconds}}</p>
+          <div class="weekly-scroll" tabindex="0" role="region" aria-label="Ukesdiagram. Rull sidelengs for å se alle dagene.">
+            <ol class="weekly-groups">{{range $summary.Days}}{{$day := .}}<li class="weekly-day{{if .Today}} is-today{{end}}"><ol class="weekly-day-bars" aria-label="{{.Date}}">{{range .Bars}}<li class="weekly-user-bar" tabindex="0" style="--bar:{{.Height}}%;--series:{{.Color}}" title="{{.User}} · {{$day.Date}}: {{humanDuration .TotalSeconds}}"><span class="sr-only">{{.User}}: {{humanDuration .TotalSeconds}}</span><span class="weekly-bar-fill" aria-hidden="true"></span></li>{{end}}</ol><time class="bar-label" datetime="{{.Date}}">{{if .Today}}I dag{{else}}{{.Label}}{{end}}</time></li>{{end}}</ol>
+          </div>
+          <figcaption class="chart-note">Familiens gjennomsnitt: <strong>{{humanDuration $summary.DailyAverage}}</strong> per dag. Inkluderer i dag.</figcaption>
         </figure>
         <p class="help"><a href="{{.AdminPath}}/export.csv">Last ned ukesoversikt (CSV)</a></p>
       </section>

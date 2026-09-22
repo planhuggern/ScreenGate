@@ -28,8 +28,23 @@ func TestDashboardSummarizesWeekWithoutInventedActivity(t *testing.T) {
 	if summary.TotalSeconds != 90 || summary.WeekSeconds != 210 || summary.Online != 1 || summary.Paused != 1 || summary.Limited != 1 || len(summary.Days) != 7 {
 		t.Fatalf("summary=%+v", summary)
 	}
-	if summary.Days[0].Height != 0 || summary.Days[5].Height != 100 || !summary.Days[6].Today {
+	if summary.Days[0].Bars[0].Height != 0 || summary.Days[5].Bars[0].TotalSeconds != 120 || !summary.Days[6].Today {
 		t.Fatalf("bars=%+v", summary.Days)
+	}
+	for _, day := range summary.Days {
+		if len(day.Bars) != 2 || day.Bars[0].User != "A" || day.Bars[1].User != "B" || day.Bars[0].Color != summary.Legend[0].Color {
+			t.Fatalf("inconsistent series: %+v", day)
+		}
+	}
+	if summary.Days[5].Bars[1].TotalSeconds != 0 || summary.Days[6].Bars[0].TotalSeconds != 60 || summary.Days[6].Bars[1].TotalSeconds != 30 || summary.Days[6].Bars[0].Height != 2*summary.Days[6].Bars[1].Height {
+		t.Fatalf("incorrect per-user totals or scale: %+v", summary.Days)
+	}
+	var page bytes.Buffer
+	if err := dashboardTemplate.Execute(&page, model); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(page.String(), `class="weekly-user-bar"`) != 14 || strings.Contains(page.String(), "ZgotmplZ") {
+		t.Fatal("grouped weekly chart missing or invalid")
 	}
 }
 
