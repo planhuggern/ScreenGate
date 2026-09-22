@@ -130,6 +130,10 @@ func (s *screenTimeService) todaysActivities() ([]activity, error) {
 				item.TotalSeconds = total
 			}
 		}
+		item.HourlyUsage, err = calculateHourlyUsage(heartbeats, date, s.location)
+		if err != nil {
+			return nil, err
+		}
 		policy, err := s.repository.userPolicy(item.User, date)
 		if err != nil {
 			return nil, err

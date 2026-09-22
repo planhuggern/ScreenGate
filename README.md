@@ -8,6 +8,7 @@ ScreenGate styrer skjermtid på Windows-PC-er fra en liten Go-server hjemme. For
 - Egen kvote og tillatt tidsrom for hver ukedag, inkludert tidsrom over midnatt og skjermfrie dager.
 - Pause og gjenåpning, samt bonusminutter som utløper ved lokal midnatt.
 - Mobiltilpasset norsk kontrollpanel med gjenværende tid, enhetsstatus, syvdagershistorikk, CSV og endringslogg.
+- Søylediagram per bruker med minutter brukt hver time i dag, inkludert timer uten aktivitet. Beregningen tar en eksplisitt dato, slik at visningen kan utvides til historiske dager. Timeskifter, lokal midnatt og sommer-/vintertid følger samme tidsgrunnlag som dagsforbruket.
 - Innlogging for administrasjonen, beskyttede skjemaer og separate, tilbakekallbare enhetsnøkler.
 - Engangskoder for tilkobling av Windows-brukere. Nye brukere starter med én time per dag.
 - Varsler på Windows før tiden er brukt opp, og lokal låsing når tillatelsen utløper.

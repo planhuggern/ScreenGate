@@ -31,6 +31,7 @@ type activity struct {
 	Online           bool
 	Devices          []deviceActivity
 	History          []dailyUsage
+	HourlyUsage      []hourlyUsage
 	Weekdays         []weekdayPolicy
 }
 
@@ -81,13 +82,28 @@ func calculateDailyTotalInLocation(heartbeats []recordedHeartbeat, date string, 
 		return 0, err
 	}
 	dayEnd := dayStart.AddDate(0, 0, 1)
+	total := time.Duration(0)
+	forEachUsageInterval(heartbeats, func(start, end time.Time) {
+		if start.Before(dayStart) {
+			start = dayStart
+		}
+		if end.After(dayEnd) {
+			end = dayEnd
+		}
+		if end.After(start) {
+			total += end.Sub(start)
+		}
+	})
+	return int(total / time.Second), nil
+}
 
+// Keep daily totals and finer-grained charts on the same accounting rules.
+func forEachUsageInterval(heartbeats []recordedHeartbeat, visit func(start, end time.Time)) {
 	byDevice := make(map[string][]recordedHeartbeat)
 	for _, heartbeat := range heartbeats {
 		byDevice[heartbeat.deviceID] = append(byDevice[heartbeat.deviceID], heartbeat)
 	}
 
-	total := time.Duration(0)
 	for _, samples := range byDevice {
 		slices.SortStableFunc(samples, func(a, b recordedHeartbeat) int { return a.reportedAt.Compare(b.reportedAt) })
 		for i, sample := range samples {
@@ -107,16 +123,9 @@ func calculateDailyTotalInLocation(heartbeats []recordedHeartbeat, date string, 
 					continue
 				}
 			}
-			if start.Before(dayStart) {
-				start = dayStart
-			}
-			if end.After(dayEnd) {
-				end = dayEnd
-			}
 			if end.After(start) {
-				total += end.Sub(start)
+				visit(start, end)
 			}
 		}
 	}
-	return int(total / time.Second), nil
 }

@@ -54,6 +54,7 @@ type userCard struct {
 	UsagePercent int
 	LastSeen     string
 	RuleDays     []ruleDay
+	HourlyChart  hourlyChart
 }
 
 type ruleDay struct {
@@ -107,6 +108,7 @@ func (d dashboard) Users() []userCard {
 	for index, item := range d.Activities {
 		card := userCard{activity: item, Index: index, Initials: initials(item.User), LastSeen: lastSeen(item.LastReportedAt)}
 		card.Status, card.StatusTone, card.StatusDetail = policyStatus(item)
+		card.HourlyChart = buildHourlyChart(item.HourlyUsage)
 		if item.QuotaSeconds > 0 {
 			card.UsagePercent = min(100, max(0, int(float64(item.TotalSeconds)/float64(item.QuotaSeconds)*100)))
 		}
@@ -231,5 +233,5 @@ var templateFunctions = template.FuncMap{
 	},
 }
 
-var dashboardTemplate = template.Must(template.New("dashboard.html").Funcs(templateFunctions).ParseFS(templateFiles, "templates/dashboard.html", "templates/styles.html"))
+var dashboardTemplate = template.Must(template.New("dashboard.html").Funcs(templateFunctions).ParseFS(templateFiles, "templates/dashboard.html", "templates/styles.html", "templates/hourly_chart.html"))
 var overviewTemplate = template.Must(template.New("overview.html").Funcs(templateFunctions).ParseFS(templateFiles, "templates/overview.html", "templates/styles.html"))

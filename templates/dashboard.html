@@ -69,6 +69,8 @@
           <div class="usage-meta"><span>Dagens ramme: {{quota .QuotaSeconds}}</span><span>{{if not .Unlimited}}{{.UsagePercent}} % brukt{{else}}&nbsp;{{end}}</span></div>
           <p class="status-detail">{{.StatusDetail}}</p>
 
+          {{template "hourly-chart" .}}
+
           <div class="quick-actions">
             <form method="post" action="{{$.AdminPath}}/user-pause">
               <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}">
