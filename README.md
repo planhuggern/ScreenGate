@@ -46,7 +46,15 @@ Databasen lagres i Docker-volumet `screengate-data`. Containeren kjører som en 
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-Veiviseren spør etter serveradressen, Windows-brukeren som skal styres og koblingskoden. Eksempel på serveradresse: `http://192.168.1.10:8081/heartbeat`.
+Veiviseren spør etter serveradressen, Windows-brukeren som skal styres og koblingskoden. Eksempel på serveradresse: `http://192.168.1.10:8081/heartbeat`. Installasjonen aktiverer også automatisk klientoppdatering hver time.
+
+Har PC-en allerede ScreenGate, kan automatisk oppdatering aktiveres uten ny installasjon eller paring. Oppdater serveren, last ned den nye `install.ps1` fra serveren og kjør én gang som administrator:
+
+```powershell
+.\install.ps1 -UpdatesOnly
+```
+
+Dette beholder eksisterende brukere og låsemodus. Første oppdateringssjekk starter etter omtrent to minutter. Deretter henter PC-en nye klientfiler fra serveren automatisk når du oppdaterer serveren. Se [driftsdokumentasjonen](docs/OPERATIONS.md#automatiske-klientoppdateringer).
 
 Du kan også oppgi alt eksplisitt:
 

@@ -72,6 +72,9 @@ func (a *application) routes() http.Handler {
 	mux.HandleFunc("/heartbeat", a.requireDevice(a.heartbeatHandler))
 	mux.HandleFunc("/event", a.requireDevice(eventHandler))
 	mux.HandleFunc("/downloads/install.ps1", downloadInstallerHandler)
+	mux.HandleFunc("/downloads/update.ps1", func(w http.ResponseWriter, r *http.Request) { downloadScript(w, r, "update.ps1") })
+	mux.HandleFunc("/downloads/update-key.json", a.downloadUpdateKey)
+	mux.HandleFunc("/downloads/update.json", a.downloadUpdateManifest)
 	mux.HandleFunc("/downloads/uninstall.ps1", downloadUninstallerHandler)
 	mux.HandleFunc("/downloads/screengate-client.exe", downloadClientHandler)
 	mux.HandleFunc("/downloads/screengate-client.exe.sha256", downloadChecksumHandler)
@@ -184,7 +187,7 @@ func parseQuota(hoursText, minutesText string) (int, error) {
 	return h*3600 + m*60, nil
 }
 
-//go:embed cmd/client/install.ps1 cmd/client/uninstall.ps1
+//go:embed cmd/client/install.ps1 cmd/client/uninstall.ps1 cmd/client/update.ps1
 var installerFiles embed.FS
 
 func clientBinaryPath() string {
@@ -267,6 +270,12 @@ func downloadScript(w http.ResponseWriter, r *http.Request, name string) {
 		// Encode request data rather than interpolating it as PowerShell code.
 		defaultValue := "([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + base64.StdEncoding.EncodeToString([]byte(endpoint)) + "')))"
 		data = bytes.Replace(data, []byte("''<# SCREENGATE_SERVER_DEFAULT #>"), []byte(defaultValue), 1)
+		updater, err := installerFiles.ReadFile("cmd/client/update.ps1")
+		if err != nil {
+			http.Error(w, "updater unavailable", http.StatusInternalServerError)
+			return
+		}
+		data = bytes.Replace(data, []byte("'SCREENGATE_UPDATER_BASE64'"), []byte("'"+base64.StdEncoding.EncodeToString(updater)+"'"), 1)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

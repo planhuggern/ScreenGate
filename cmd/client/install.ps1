@@ -5,7 +5,8 @@ param(
     [string]$User,
     [ValidatePattern('^$|^[a-fA-F0-9]{64}$')]
     [string]$ExpectedSha256,
-    [switch]$SkipStart
+    [switch]$SkipStart,
+    [switch]$UpdatesOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +31,65 @@ if ($serverUri.Scheme -eq 'http' -and -not $serverUri.IsLoopback) {
 }
 $serverOrigin = $serverUri.GetLeftPart([UriPartial]::Authority)
 $clientUrl = "$serverOrigin/downloads/screengate-client.exe"
+
+function Enable-ScreenGateUpdates {
+    param([string]$Origin, [string]$InstallDirectory)
+    $updateConfigPath = Join-Path $InstallDirectory 'update.json'
+    $key = Invoke-RestMethod -Uri "$Origin/downloads/update-key.json" -TimeoutSec 30 -MaximumRedirection 0
+    $parameters = New-Object Security.Cryptography.RSAParameters
+    $parameters.Modulus = [Convert]::FromBase64String($key.modulus)
+    $parameters.Exponent = [Convert]::FromBase64String($key.exponent)
+    $rsa = [Security.Cryptography.RSA]::Create()
+    try {
+        $rsa.ImportParameters($parameters)
+        if ($rsa.KeySize -lt 2048) { throw 'Serverens oppdateringsnokkel er for kort.' }
+    } finally { $rsa.Dispose() }
+    if (Test-Path -LiteralPath $updateConfigPath) {
+        $existing = Get-Content -LiteralPath $updateConfigPath -Raw | ConvertFrom-Json
+        if ($existing.origin -ne $Origin -or $existing.key.modulus -ne $key.modulus -or $existing.key.exponent -ne $key.exponent) {
+            throw 'Oppdateringsserver eller nokkel er endret. Gjenopprett serverdatabasen eller fjern update.json som administrator for a godkjenne ny server.'
+        }
+    }
+    $embeddedUpdater = 'SCREENGATE_UPDATER_BASE64'
+    if ($embeddedUpdater -eq ('SCREENGATE_' + 'UPDATER_BASE64')) {
+        $updaterBytes = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot 'update.ps1'))
+    } else {
+        $updaterBytes = [Convert]::FromBase64String($embeddedUpdater)
+    }
+    $updaterPath = Join-Path $InstallDirectory 'update.ps1'
+    [IO.File]::WriteAllBytes($updaterPath, $updaterBytes)
+    $updateConfiguration = @{ origin = $Origin; key = $key } | ConvertTo-Json -Depth 4
+    [IO.File]::WriteAllText($updateConfigPath, $updateConfiguration, (New-Object Text.UTF8Encoding($false)))
+    $powershellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $updateAction = New-ScheduledTaskAction -Execute $powershellPath -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $updaterPath + '"') -WorkingDirectory $InstallDirectory
+    $updateTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) -RepetitionInterval (New-TimeSpan -Hours 1)
+    $updatePrincipal = New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest
+    $updateSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName 'ScreenGate Update' -Action $updateAction -Trigger $updateTrigger -Principal $updatePrincipal -Settings $updateSettings -Description 'Kontrollerer signerte ScreenGate-oppdateringer hver time.' -Force | Out-Null
+    Write-Host 'Automatisk klientoppdatering er aktivert. Kontrollerer hver time; paring og lasemodus beholdes.'
+}
+
+# Protect the updater, pinned key, and executable from modification by ordinary users.
+$installDir = Join-Path $env:ProgramFiles 'ScreenGate'
+New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+if ((Get-Item -LiteralPath $installDir).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Installasjonsmappen kan ikke vaere en lenke.' }
+$installAcl = New-Object Security.AccessControl.DirectorySecurity
+$installAcl.SetAccessRuleProtection($true, $false)
+$installAcl.SetOwner((New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')))
+foreach ($entry in @(@('S-1-5-18', 'FullControl'), @('S-1-5-32-544', 'FullControl'), @('S-1-5-32-545', 'ReadAndExecute'))) {
+    $identity = New-Object Security.Principal.SecurityIdentifier($entry[0])
+    $installAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($identity, $entry[1], 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+}
+Set-Acl -LiteralPath $installDir -AclObject $installAcl
+# Holding the file open prevents the hourly updater from racing this installation.
+try { $installationLock = [IO.File]::Open((Join-Path $installDir 'update.lock'), 'OpenOrCreate', 'ReadWrite', 'None') }
+catch { throw 'En ScreenGate-oppdatering pagar. Vent litt og prov igjen.' }
+try {
+if ($UpdatesOnly) {
+    if (-not (Test-Path -LiteralPath (Join-Path $installDir 'screengate-client.exe'))) { throw 'Installer ScreenGate forst; -UpdatesOnly krever en eksisterende installasjon.' }
+    Enable-ScreenGateUpdates -Origin $serverOrigin -InstallDirectory $installDir
+    return
+}
 
 if (-not $User) {
     $users = @(Get-CimInstance Win32_UserProfile |
@@ -123,6 +183,8 @@ try {
         throw 'SHA-256 stemmer ikke. Installasjonen er avbrutt.'
     }
 
+    Enable-ScreenGateUpdates -Origin $serverOrigin -InstallDirectory $installDir
+
     if (-not $configuration) {
         $body = @{ code = $EnrollmentCode.Trim(); device_id = [Environment]::MachineName; user = $User } | ConvertTo-Json -Compress
         $pairing = Invoke-RestMethod -Method Post -Uri "$serverOrigin/enroll" -ContentType 'application/json' -Body $body -TimeoutSec 20 -MaximumRedirection 0
@@ -179,6 +241,7 @@ try {
         if ($existingTask.TaskName -eq 'ScreenGate Client') {
             Unregister-ScheduledTask -InputObject $existingTask -Confirm:$false
         } elseif ($existingTask.TaskName -ne $taskName) {
+            Enable-ScheduledTask -InputObject $existingTask | Out-Null
             Start-ScheduledTask -InputObject $existingTask
         }
     }
@@ -194,7 +257,7 @@ try {
     if ($SkipStart) { Write-Host 'Klienten starter ved neste innlogging.' }
 } finally {
     if (-not $completed -and $binaryReplaced -and (Test-Path -LiteralPath $backupClientPath)) {
-        try { [IO.File]::Replace($backupClientPath, $clientPath, $null) } catch {
+        try { [IO.File]::Replace($backupClientPath, $clientPath, $temporaryClientPath) } catch {
             $preserveBackup = $true
             Write-Warning "Gjenoppretting feilet. Gammel klient er bevart i $backupClientPath. $($_.Exception.Message)"
         }
@@ -207,3 +270,5 @@ try {
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
     }
 }
+
+} finally { $installationLock.Dispose() }

@@ -65,6 +65,20 @@ Installasjonen sjekker SHA-256 fra serveren. Dette oppdager en ufullstendig elle
 
 `uninstall.ps1 -User "PC\bruker" -WhatIf` viser hva avinstalleringen retter seg mot. Uten `-WhatIf` fjernes bare denne brukerens oppgave og konfigurasjonsfil. Lokale logger og klienttilstand beholdes. Avinstalleringen sletter ikke databasedata på serveren.
 
+## Automatiske klientoppdateringer
+
+Nye installasjoner oppretter den felles Windows-oppgaven `ScreenGate Update`. På eksisterende PC-er aktiveres den én gang med den nye `install.ps1 -UpdatesOnly`, kjørt som administrator. Ny paring er ikke nødvendig, og eksisterende testmodus/låsemodus beholdes. Last ned skriptet fra den oppdaterte serveren først; et gammelt installasjonsskript har ikke denne funksjonen.
+
+Oppgaven kjører skjult som SYSTEM hvert 60. minutt og starter første sjekk etter omtrent to minutter. Den bruker `update.ps1` og `update.json` i `C:\Program Files\ScreenGate`. Vanlige brukere har bare lesetilgang. PC-en trenger nettverkstilgang til serveradressen også fra SYSTEM-kontoen. En sjekk som ble utsatt mens PC-en sov, kjøres når oppgaven igjen kan starte.
+
+Når serverens klientfil endres, laster oppdatereren ned filen og kontrollerer serverens signatur, filstørrelse og SHA-256 før noen klient stoppes. Bare ScreenGate-oppgaver som allerede kjører, startes på nytt. Oppgaven endrer ikke klientkonfigurasjon, paring eller låsemodus. Den forrige programfilen beholdes som `screengate-client.previous.exe`; hvis en omstartet klient ikke blir værende i gang, forsøkes automatisk tilbakeføring. Kontrollen bekrefter oppstart, ikke all funksjonalitet i en ny versjon.
+
+Ved vanlig utrulling er det nok å bygge og starte den nye serverversjonen med tilhørende Windows-klient, for eksempel `docker compose up --build -d`. Ved manuell serverdrift må `CLIENT_BINARY_PATH` peke på den nye klientfilen. Oppdatereren sammenligner filinnhold, så uendret klient blir ikke startet på nytt. Oppdatereren selv er et lokalt installert skript; denne mekanismen oppdaterer klientprogrammet, ikke installasjonsskriptene.
+
+Serverens RSA-nøkkel lagres i databasen og følger sikkerhetskopien. Den offentlige nøkkelen festes til PC-en ved aktivering. Hver sjekk signeres med en ny tilfeldig utfordring, slik at et gammelt svar ikke kan spilles av som en ny oppdatering. HTTPS anbefales ved første aktivering; ved HTTP må installasjonsskriptet og nøkkelen hentes over et nettverk du stoler på. Senere nedlastinger kontrolleres mot nøkkelen som allerede er lagret, også over HTTP. Oppdatereren godtar ikke automatisk en ny nøkkel hvis databasen blir erstattet. Gjenopprett databasen, eller godkjenn en ny server ved å fjerne `update.json` som administrator og kjøre aktiveringen igjen.
+
+Logg: `C:\Program Files\ScreenGate\update.log`. En mislykket sjekk prøves igjen neste time. For umiddelbar sjekk kan en administrator kjøre `Start-ScheduledTask -TaskName 'ScreenGate Update'`. Avinstallering av siste ScreenGate-bruker fjerner også oppdateringsoppgaven. Avinstallering av én bruker lar andre brukeres oppdateringer fortsette.
+
 ## Vanlige feil
 
 **Serveren starter ikke:** Kontroller `ADMIN_PASSWORD`, tidssone og skrivetilgang til databasen. `docker compose logs --tail=100` viser oppstartsfeil. `GET /healthz` skal returnere `{"status":"ok"}`.

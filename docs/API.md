@@ -18,6 +18,14 @@ Koblingskoden opprettes av en innlogget administrator, varer i 15 minutter og ka
 
 Lagre tokenet i beskyttet klientkonfigurasjon. Serveren lagrer bare en SHA-256-hash. Ny tilkobling for samme bruker og maskin tilbakekaller den tidligere nøkkelen.
 
+## Klientoppdateringer
+
+- `GET /downloads/update-key.json`: offentlig RSA-nøkkel med Base64-feltene `modulus` og `exponent`. Installasjonen lagrer denne én gang.
+- `GET /downloads/update.json?nonce=<64 heksadesimale tegn>`: signert manifest med Base64-feltene `payload` og `signature`. Signaturen er RSA PKCS#1 v1.5 med SHA-256 over de eksakte dekodede payload-bytene. Payload er JSON med `protocol: 1`, samme `nonce`, `sha256` og `size` for klientfilen. Klienten må kontrollere signatur og utfordring før bruk.
+- `GET /downloads/screengate-client.exe`: filen manifestet beskriver. Hvis filen ble byttet mellom manifest og nedlasting, avvises nedlastingen og neste sjekk prøver igjen.
+
+Disse endepunktene er offentlige; privat signeringsnøkkel eller enhetsnøkler sendes ikke. Manifest og offentlig nøkkel returneres med `Cache-Control: no-store`.
+
 ## Rapport: `POST /heartbeat`
 
 ```json
