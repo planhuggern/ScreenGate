@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ServerUrl = ''<# SCREENGATE_SERVER_DEFAULT #>,
-    [string]$EnrollmentCode,
+    [string]$EnrollmentCode = ''<# SCREENGATE_ENROLLMENT_DEFAULT #>,
     [string]$User,
     [ValidatePattern('^$|^[a-fA-F0-9]{64}$')]
     [string]$ExpectedSha256,

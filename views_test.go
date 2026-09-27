@@ -9,7 +9,7 @@ import (
 
 func TestDashboardEscapesUserControlledContent(t *testing.T) {
 	malicious := `<script>alert("name")</script>`
-	model := dashboard{Date: "2026-09-18", AdminPath: "/admin", CSRFToken: "csrf", Activities: []activity{{User: malicious, QuotaSeconds: 3600, RemainingSeconds: 3600}}, Devices: []deviceView{{ID: "id", DeviceID: malicious, User: malicious}}, PairingCode: "SAFE-CODE", PairingUser: malicious, Audit: []auditEvent{{User: malicious, Description: malicious}}}
+	model := dashboard{Date: "2026-09-18", AdminPath: "/admin", CSRFToken: "csrf", Activities: []activity{{User: malicious, QuotaSeconds: 3600, RemainingSeconds: 3600}}, Devices: []deviceView{{ID: "id", DeviceID: malicious, User: malicious}}, Audit: []auditEvent{{User: malicious, Description: malicious}}}
 	var page bytes.Buffer
 	if err := dashboardTemplate.Execute(&page, model); err != nil {
 		t.Fatal(err)

@@ -19,8 +19,6 @@ type dashboard struct {
 	CSRFToken    string
 	Timezone     string
 	Flash        string
-	PairingCode  string
-	PairingUser  string
 	ClientSHA256 string
 	Devices      []deviceView
 	Audit        []auditEvent

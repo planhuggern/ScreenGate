@@ -38,15 +38,15 @@ Databasen lagres i Docker-volumet `screengate-data`. Containeren kjører som en 
 
 ## Koble til en Windows-PC
 
-1. Lag en koblingskode under **Enheter og tilkobling** i foreldreoversikten.
-2. Last ned installasjonen fra samme sted.
+1. Skriv inn ScreenGate-brukernavnet under **Enheter og tilkobling** i foreldreoversikten.
+2. Klikk **Last ned installasjon**. Serveren lager en engangskode og laster ned `install.ps1` med serveradresse og kode ferdig utfylt.
 3. På Windows-PC-en: åpne PowerShell som administrator og kjør:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-Veiviseren spør etter serveradressen, Windows-brukeren som skal styres og koblingskoden. Eksempel på serveradresse: `http://192.168.1.10:8081/heartbeat`. Installasjonen aktiverer også automatisk klientoppdatering hver time.
+Veiviseren spør etter Windows-brukeren som skal styres og ønsket låsemodus. Koblingskoden trenger ikke tastes inn eller sendes som argument. Et generisk skript uten inkludert kode spør etter kode hvis det ikke finnes en eksisterende paring. Installasjonen aktiverer også automatisk klientoppdatering hver time.
 
 Har PC-en allerede ScreenGate, kan automatisk oppdatering aktiveres uten ny installasjon eller paring. Oppdater serveren, last ned den nye `install.ps1` fra serveren og kjør én gang som administrator:
 
@@ -62,7 +62,7 @@ Du kan også oppgi alt eksplisitt:
 .\install.ps1 -ServerUrl "https://screengate.example/heartbeat" -User "PC\barn" -EnrollmentCode "KODEN-FRA-FORELDREOVERSIKTEN"
 ```
 
-Koden varer i 15 minutter og kan brukes én gang. Navnet du valgte i foreldreoversikten bestemmer hvilken kvote enheten deler; Windows-kontonavnet trenger ikke være identisk. Lag en ny kode for hver enhet. Bruk samme ScreenGate-navn på flere PC-er når de skal dele dagskvote.
+Koden i filen varer i 15 minutter og kan brukes én gang. Last ned en ny installasjonsfil hvis koden er brukt eller utløpt. En ny nedlasting erstatter tidligere ubrukt kode for samme bruker. Navnet du valgte i foreldreoversikten bestemmer hvilken kvote enheten deler; Windows-kontonavnet trenger ikke være identisk. Last ned en egen fil for hver enhet. Bruk samme ScreenGate-navn på flere PC-er når de skal dele dagskvote.
 
 Installasjonen kontrollerer nedlastingens SHA-256, lagrer konfigurasjonen med begrensede Windows-rettigheter og oppretter én oppstartsoppgave per Windows-bruker. Oppgradering uten ny kode beholder eksisterende tilkobling. `-SkipStart` utsetter oppstart til neste innlogging.
 
@@ -70,7 +70,7 @@ Klienten installeres som standard i **testmodus uten låsing**, også etter omst
 
 Installasjonsfilen fra nettsiden har serveradressen ferdig utfylt fra nedlastingsadressen. En fil hentet direkte fra kildekoden spør fortsatt om adresse; `-ServerUrl` kan overstyre den utfylte adressen. Bak en HTTPS-proxy brukes en samsvarende `SCREENGATE_TRUSTED_ORIGINS` til å velge offentlig HTTPS-adresse; proxyen må bevare Host.
 
-Installasjonsveiviseren spør om modus: velg **1 – Testmodus** (eller trykk Enter) for tidsregistrering uten låsing, eller **2 – Aktiver låsing** for faktisk låsing. Når testen fungerer, kan du kjøre skriptet på nytt og velge 2; ingen ekstra argumenter er nødvendige. Menyen vises også ved oppgradering, med testmodus som standard. Ved manuell klientstart er låsing av som standard; `-test-mode` overstyrer også en konfigurasjon med låsing aktivert. Gamle konfigurasjoner uten `enable_locking` starter i testmodus.
+Installasjonsveiviseren spør om modus: velg **1 – Testmodus** (eller trykk Enter) for tidsregistrering uten låsing, eller **2 – Aktiver låsing** for faktisk låsing. Når testen fungerer, kan du laste ned en ny installasjon og velge 2. Menyen vises også ved oppgradering, med testmodus som standard. Ved manuell klientstart er låsing av som standard; `-test-mode` overstyrer også en konfigurasjon med låsing aktivert. Gamle konfigurasjoner uten `enable_locking` starter i testmodus.
 
 Serveren må bygges og startes på nytt før det oppdaterte installasjonsskriptet lastes ned (med Docker Compose: `docker compose up --build -d`). Bruk det nye skriptet; gamle skript har ikke beskyttelsen. Det nye skriptet gir klienten et eksplisitt modusflagg, slik at eldre klienter uten støtte avslutter i stedet for å ignorere testmodus.
 

@@ -108,10 +108,10 @@ func (a *application) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
-	a.renderDashboard(w, r, "", "", "")
+	a.renderDashboard(w, r, "")
 }
 
-func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, flash, code, user string) {
+func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, flash string) {
 	activities, err := a.service.todaysActivities()
 	if err != nil {
 		log.Printf("dashboard: %v", err)
@@ -124,7 +124,7 @@ func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, fl
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
-	model := dashboard{Date: a.service.today(), Activities: activities, AdminPath: a.adminPath, CSRFToken: a.csrfToken, Timezone: a.service.location.String(), Flash: flash, PairingCode: code, PairingUser: user, Devices: devices}
+	model := dashboard{Date: a.service.today(), Activities: activities, AdminPath: a.adminPath, CSRFToken: a.csrfToken, Timezone: a.service.location.String(), Flash: flash, Devices: devices}
 	model.ClientSHA256, _ = clientChecksum()
 	model.Audit, err = a.recentAudit()
 	if err != nil {
@@ -247,6 +247,12 @@ func downloadScript(w http.ResponseWriter, r *http.Request, name string) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
+	writeInstallerScript(w, r, name, "")
+}
+
+// Personalized installers are returned directly from the authenticated POST.
+// The one-use code never appears in a URL or a cached response.
+func writeInstallerScript(w http.ResponseWriter, r *http.Request, name, enrollmentCode string) {
 	data, err := installerFiles.ReadFile("cmd/client/" + name)
 	if err != nil {
 		http.Error(w, "installer unavailable", http.StatusInternalServerError)
@@ -270,6 +276,11 @@ func downloadScript(w http.ResponseWriter, r *http.Request, name string) {
 		// Encode request data rather than interpolating it as PowerShell code.
 		defaultValue := "([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + base64.StdEncoding.EncodeToString([]byte(endpoint)) + "')))"
 		data = bytes.Replace(data, []byte("''<# SCREENGATE_SERVER_DEFAULT #>"), []byte(defaultValue), 1)
+		enrollmentDefault := "''"
+		if enrollmentCode != "" {
+			enrollmentDefault = "([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + base64.StdEncoding.EncodeToString([]byte(enrollmentCode)) + "')))"
+		}
+		data = bytes.Replace(data, []byte("''<# SCREENGATE_ENROLLMENT_DEFAULT #>"), []byte(enrollmentDefault), 1)
 		updater, err := installerFiles.ReadFile("cmd/client/update.ps1")
 		if err != nil {
 			http.Error(w, "updater unavailable", http.StatusInternalServerError)

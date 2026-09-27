@@ -126,7 +126,7 @@ func TestPairingStartsNewUsersWithBoundedQuota(t *testing.T) {
 			}
 		}
 		w := serve(a, adminRequest(a, http.MethodPost, a.adminPath+"/devices/pair", url.Values{"user": {user}}))
-		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "pair-code") {
+		if w.Code != http.StatusOK || w.Header().Get("Content-Disposition") != "attachment; filename=install.ps1" {
 			t.Fatalf("pairing status=%d", w.Code)
 		}
 		quota, err := a.service.repository.userQuota(user)

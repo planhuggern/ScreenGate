@@ -38,7 +38,6 @@
     </header>
 
     {{if .Flash}}<div class="notice" role="status">{{template "icon-shield"}}<p>{{.Flash}}</p></div>{{end}}
-    {{if .PairingCode}}<div class="notice" role="status">{{template "icon-device"}}<p>Koblingskoden for <strong>{{.PairingUser}}</strong> er klar. <a href="#pairing-code">Vis koden og koble til Windows-enheten.</a></p></div>{{end}}
 
     {{$summary := .Summary}}
     <section class="hero" aria-label="Dagens oversikt">
@@ -114,7 +113,7 @@
       {{end}}
       </div>
       {{else}}
-        <div class="empty-state panel"><div class="empty-icon">{{template "icon-users"}}</div><h2>En roligere skjermhverdag starter her.</h2><p>Koble til den første Windows-enheten, så dukker brukeren opp her. Du kan deretter tilpasse tidsgrenser og ukeplan.</p><a class="button primary" href="#devices">Koble til første enhet {{template "icon-arrow"}}</a><div class="steps"><span><span class="step-number">1</span>Lag en koblingskode</span><span><span class="step-number">2</span>Installer på Windows</span><span><span class="step-number">3</span>Sett familiens rammer</span></div></div>
+        <div class="empty-state panel"><div class="empty-icon">{{template "icon-users"}}</div><h2>En roligere skjermhverdag starter her.</h2><p>Koble til den første Windows-enheten, så dukker brukeren opp her. Du kan deretter tilpasse tidsgrenser og ukeplan.</p><a class="button primary" href="#devices">Koble til første enhet {{template "icon-arrow"}}</a><div class="steps"><span><span class="step-number">1</span>Last ned installasjon</span><span><span class="step-number">2</span>Installer på Windows</span><span><span class="step-number">3</span>Sett familiens rammer</span></div></div>
       {{end}}
     </section>
 
@@ -139,9 +138,9 @@
       <div class="devices-layout">
         <div>
           <h3>Legg til en enhet</h3><p class="help">Bruk samme navn på flere enheter for å dele brukerens tidsgrense. Nye brukere starter med 1 time per dag.</p>
-          <form class="pair-form" method="post" action="{{.AdminPath}}/devices/pair"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><div class="fields"><label class="field">Brukernavn<input type="text" name="user" placeholder="For eksempel Nora" maxlength="128" autocomplete="off" required></label><button class="button primary" type="submit">Lag koblingskode</button></div></form>
-          {{if .PairingCode}}<div class="pair-result" id="pairing-code"><h3>Koblingskode for {{.PairingUser}}</h3><code class="pair-code">{{.PairingCode}}</code><p>Koden kan brukes én gang og er gyldig i 15 minutter. Oppgi den når installasjonen på Windows ber om koblingskode.</p></div>{{end}}
-          <details class="setup-details" {{if .PairingCode}}open{{end}}><summary>Slik installerer du på Windows</summary><ol><li>Lag en koblingskode for brukeren ovenfor.</li><li>Last ned installasjonsfilen på Windows-enheten.</li><li>Åpne PowerShell som administrator og kjør kommandoen nedenfor i mappen med filen.</li><li>Følg veiviseren, og velg Windows-brukeren som skal ha ScreenGate.</li></ol><a class="button" href="{{.AdminPath}}/downloads/install.ps1">Last ned installasjon for Windows {{template "icon-arrow"}}</a><code class="code">powershell -ExecutionPolicy Bypass -File .\install.ps1</code><p class="help">Installer med en foresatt sin administratorkonto. Barnets Windows-konto bør være en standardkonto.</p></details>
+          <form class="pair-form" method="post" action="{{.AdminPath}}/devices/pair"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><div class="fields"><label class="field">Brukernavn<input type="text" name="user" placeholder="For eksempel Nora" maxlength="128" autocomplete="off" required></label><button class="button primary" type="submit">Last ned installasjon</button></div></form>
+          <p class="help">Installasjonsfilen inneholder koblingskoden for brukeren. Koden kan brukes én gang innen 15 minutter. Last ned en ny fil hvis den utløper.</p>
+          <details class="setup-details"><summary>Slik installerer du på Windows</summary><ol><li>Skriv inn brukernavnet ovenfor og velg Last ned installasjon.</li><li>Åpne PowerShell som administrator på Windows-enheten og kjør kommandoen nedenfor i mappen med filen.</li><li>Følg veiviseren og velg Windows-bruker og testmodus eller låsing. Koblingskoden er allerede utfylt.</li></ol><code class="code">powershell -ExecutionPolicy Bypass -File .\install.ps1</code><p class="help">Installer med en foresatt sin administratorkonto. Barnets Windows-konto bør være en standardkonto.</p></details>
         </div>
         <div>
           {{if .ClientSHA256}}<details class="defender-help"><summary>Windows Defender blokkerer klienten?</summary><p class="help">Åpne Windows Security → Virus &amp; threat protection → Protection history. Åpne <code>Trojan:Win32/Bearfoos.B!ml</code> og velg <strong>Allow on device</strong> for denne filen. Ikke deaktiver Defender globalt.</p><p class="help">Kontroller deretter SHA-256:</p><code class="code">Get-FileHash "C:\Program Files\ScreenGate\.client-*.exe" -Algorithm SHA256</code><p class="help">Forventet SHA-256:</p><code class="code">{{.ClientSHA256}}</code><p class="help">Installasjonsskriptet kontrollerer også hashen automatisk.</p></details>{{end}}

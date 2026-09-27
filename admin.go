@@ -171,7 +171,7 @@ func (a *application) pairDeviceHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	a.audit(user, "pairing", "pairing code created")
-	a.renderDashboard(w, r, "Koblingskoden er klar. Den kan brukes én gang innen 15 minutter.", code, user)
+	writeInstallerScript(w, r, "install.ps1", code)
 }
 
 func (a *application) revokeDeviceHandler(w http.ResponseWriter, r *http.Request) {

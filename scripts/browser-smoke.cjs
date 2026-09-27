@@ -38,8 +38,14 @@ async function main() {
     await page.goto(`${origin}/admin`);
     await page.screenshot({ path: path.join(artifacts, 'dashboard-empty.png'), fullPage: true });
     await page.locator('.pair-form input[name=user]').fill('Nora');
-    await page.locator('.pair-form button').click();
-    const code = (await page.locator('.pair-code').textContent()).trim();
+    const pendingDownload = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Last ned installasjon', exact: true }).click();
+    const download = await pendingDownload;
+    assert.equal(download.suggestedFilename(), 'install.ps1');
+    const installer = fs.readFileSync(await download.path(), 'utf8');
+    const encodedCode = installer.match(/\$EnrollmentCode = .*?FromBase64String\('([^']+)'\)/);
+    assert.ok(encodedCode, 'installer should include pairing code');
+    const code = Buffer.from(encodedCode[1], 'base64').toString('utf8');
     assert.match(code, /^[A-Z2-7]{4}(?:-[A-Z2-7]{4}){3}$/);
     const enrollment = await fetch(`${origin}/enroll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, device_id: 'Nora-PC', user: 'Windows\\Nora' }) });
     assert.equal(enrollment.status, 200);

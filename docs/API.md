@@ -4,7 +4,7 @@ Klienter bruker JSON over HTTP eller HTTPS. Alle personlige klientendepunkter kr
 
 ## Tilkobling: `POST /enroll`
 
-Koblingskoden opprettes av en innlogget administrator, varer i 15 minutter og kan brukes én gang. En ny kode for samme bruker erstatter en eventuell ubrukt kode.
+En innlogget administrator oppgir brukernavn og velger **Last ned installasjon**. Skjemaet sender en CSRF-beskyttet `POST` til administrasjonens `/devices/pair`, som oppretter en koblingskode og returnerer `install.ps1` som nedlasting med koden inkludert. Svaret har `Cache-Control: no-store`; koden legges ikke i URL-en. Koden varer i 15 minutter og kan brukes én gang. En ny nedlasting for samme bruker erstatter en eventuell ubrukt kode.
 
 ```json
 {"code":"AAAA-BBBB-CCCC-DDDD","device_id":"Nora-PC","user":"PC\\windowsbruker"}
