@@ -99,7 +99,14 @@ func postJSON(ctx context.Context, client *http.Client, endpoint, token string, 
 }
 
 func postHeartbeat(ctx context.Context, client *http.Client, endpoint, token string, report heartbeat) (response, error) {
-	httpResponse, err := postJSON(ctx, client, endpoint, token, report)
+	// Usage is computed by the server. Local estimates remain in saved state only.
+	payload := struct {
+		DeviceID    string `json:"device_id"`
+		User        string `json:"user"`
+		HeartbeatID string `json:"heartbeat_id"`
+		Locked      bool   `json:"locked"`
+	}{report.DeviceID, report.User, report.HeartbeatID, report.SessionState == "locked"}
+	httpResponse, err := postJSON(ctx, client, endpoint, token, payload)
 	if err != nil {
 		return response{}, err
 	}

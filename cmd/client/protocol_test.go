@@ -52,11 +52,11 @@ func TestHeartbeatProtocolAuthenticatesAndPreservesReport(t *testing.T) {
 		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer secret" {
 			t.Error("request lacks authentication")
 		}
-		var report heartbeat
+		var report map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
 			t.Error(err)
 		}
-		if report.HeartbeatID != "idempotent-report" || report.ActiveSeconds != 25 || report.ActivityDate != "2026-09-18" {
+		if report["heartbeat_id"] != "idempotent-report" || report["locked"] != false || report["active_seconds"] != nil || report["activity_date"] != nil {
 			t.Errorf("report=%+v", report)
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -99,5 +99,24 @@ func TestValidateEndpoint(t *testing.T) {
 		if _, err := validateEndpoint(value); err == nil {
 			t.Errorf("invalid URL accepted: %q", value)
 		}
+	}
+}
+
+func TestHeartbeatSendsLockedState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Error(err)
+			return
+		}
+		if payload["locked"] != true {
+			t.Errorf("payload=%v", payload)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"action":"allow","lease_seconds":90}`))
+	}))
+	defer server.Close()
+	if _, err := postHeartbeat(context.Background(), newHTTPClient(), server.URL, "secret", heartbeat{SessionState: "locked"}); err != nil {
+		t.Fatal(err)
 	}
 }

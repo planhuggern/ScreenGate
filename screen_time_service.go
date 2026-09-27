@@ -37,20 +37,14 @@ func newScreenTimeService(repository *repository) *screenTimeService {
 }
 
 func (s *screenTimeService) recordHeartbeat(h heartbeat) (heartbeatResult, error) {
-	if !validPolicyUser(h.User) || h.DeviceID == "" || len(h.DeviceID) > 200 || len(h.HeartbeatID) > 200 || h.ActiveSeconds < 0 || h.ActiveSeconds > 86400 || (h.SessionState != "" && h.SessionState != "active" && h.SessionState != "idle" && h.SessionState != "locked") {
+	if !validPolicyUser(h.User) || h.DeviceID == "" || len(h.DeviceID) > 200 || len(h.HeartbeatID) > 200 || (h.SessionState != "" && h.SessionState != "active" && h.SessionState != "idle" && h.SessionState != "locked") {
 		return heartbeatResult{}, errInvalidHeartbeat
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	h.ReportedAt = s.now().In(s.location)
 	date := h.ReportedAt.Format("2006-01-02")
-	if h.ActivityDate != "" {
-		activityDay, err := time.ParseInLocation("2006-01-02", h.ActivityDate, s.location)
-		if err != nil || activityDay.Year() < 1970 || h.ActivityDate > date {
-			return heartbeatResult{}, errInvalidHeartbeat
-		}
-	}
-	if err := s.repository.addHeartbeatInLocation(h, s.location); err != nil {
+	if err := s.repository.addHeartbeat(h); err != nil {
 		return heartbeatResult{}, err
 	}
 
@@ -85,7 +79,7 @@ func (s *screenTimeService) addHeartbeat(h heartbeat) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	date := h.ReportedAt.In(s.location).Format("2006-01-02")
-	if err := s.repository.addHeartbeatInLocation(h, s.location); err != nil {
+	if err := s.repository.addHeartbeat(h); err != nil {
 		return 0, err
 	}
 	return s.dailyTotal(h.User, date)

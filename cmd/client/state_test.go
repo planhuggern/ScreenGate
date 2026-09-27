@@ -88,7 +88,7 @@ func TestRetriesKeepReportIDAndDoNotLoseNewUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	state.account(8, now.Add(8*time.Second))
-	retry, err := state.prepareReport("pc", "child", "locked", now.Add(8*time.Second))
+	retry, err := state.prepareReport("pc", "child", "active", now.Add(8*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,5 +199,20 @@ func TestWarningsUseEarliestQuotaOrScheduledLock(t *testing.T) {
 	state.ScheduledLockAt = time.Time{}
 	if state.warningRemaining(now) <= 900 {
 		t.Fatal("unlimited unscheduled time must not warn")
+	}
+}
+
+func TestLockChangeReplacesPendingHeartbeatID(t *testing.T) {
+	state := clientState{}
+	first, err := state.prepareReport("pc", "child", "active", testMoment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, err := state.prepareReport("pc", "child", "locked", testMoment().Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.HeartbeatID == locked.HeartbeatID || locked.SessionState != "locked" {
+		t.Fatalf("lock change reused a previously accepted report: %+v", locked)
 	}
 }

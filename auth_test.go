@@ -224,8 +224,8 @@ func TestHeartbeatRejectsMalformedOrUnboundedInput(t *testing.T) {
 	a := securedApplication(t)
 	d := enrolledDevice(t, a, "child", "pc")
 	for _, body := range []string{
-		`{`, `null`, `{}`, `{"device_id":"pc","user":"child","active_seconds":-1}`,
-		`{"device_id":"pc","user":"child","active_seconds":86401}`,
+		`{`, `null`, `{}`, `{"device_id":"pc","user":"child","locked":"true"}`,
+		`{"device_id":"pc","user":"child","locked":1}`,
 		`{"device_id":"pc","user":"child","active_seconds":0} {}`,
 		`{"device_id":"pc","user":"child","active_seconds":0,"unknown":true}`,
 		`{"device_id":"pc","user":"child","session_state":"nonsense"}`,

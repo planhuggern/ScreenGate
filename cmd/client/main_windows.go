@@ -47,9 +47,10 @@ func newFocusEvent(deviceID, username, app string, activeSeconds int, timestamp 
 }
 
 type heartbeatResult struct {
-	response response
-	sentAt   time.Time
-	err      error
+	sessionState string
+	response     response
+	sentAt       time.Time
+	err          error
 }
 
 func main() {
@@ -62,7 +63,7 @@ func main() {
 	tokenPath := flag.String("token-file", "", "file containing the device token")
 	userFlag := flag.String("user", "", "logical ScreenGate user assigned during pairing")
 	deviceFlag := flag.String("device-id", "", "device ID assigned during pairing")
-	idleTimeout := flag.Duration("idle-timeout", 0, "optional inactivity cutoff, e.g. 5m; 0 counts passive screen use")
+	idleTimeout := flag.Duration("idle-timeout", 0, "optional inactivity cutoff for app tracking, e.g. 5m; unlocked time still counts")
 	trackApps := flag.Bool("track-apps", false, "optional foreground application reporting (disabled by default)")
 	debugRemaining := flag.String("debug-remaining", "", "comma-separated remaining_seconds values for warning testing")
 	flag.Parse()
@@ -209,7 +210,7 @@ func main() {
 		go func() {
 			result, err := postHeartbeat(ctx, client, config.Server, config.Token, report)
 			select {
-			case results <- heartbeatResult{response: result, sentAt: now, err: err}:
+			case results <- heartbeatResult{response: result, sentAt: now, err: err, sessionState: report.SessionState}:
 			case <-ctx.Done():
 			}
 		}()
@@ -229,7 +230,7 @@ func main() {
 		}
 		lastPoll = now
 		currentState := currentSessionState(*idleTimeout)
-		seconds := meter.update(currentState == "active", now)
+		seconds := meter.update(currentState != "locked", now)
 		state.account(seconds, now)
 		if currentState != "active" {
 			flushFocus(now)
@@ -254,9 +255,9 @@ func main() {
 		enforce(now)
 	}
 	// Network operations run separately so a stalled connection cannot stop
-	// local enforcement. A fresh installation reports zero seconds initially.
+	// local enforcement. The first heartbeat establishes server-side presence.
 	sessionState = currentSessionState(*idleTimeout)
-	meter.update(sessionState == "active", time.Now())
+	meter.update(sessionState != "locked", time.Now())
 	sendHeartbeat()
 	for {
 		select {
@@ -317,7 +318,7 @@ func main() {
 			}
 			persist()
 			enforce(now)
-			if result.err == nil && state.PendingSeconds > 0 && state.PendingDate != "" && state.PendingDate != state.PolicyDate {
+			if result.sessionState != sessionState {
 				sendHeartbeat()
 			}
 		}

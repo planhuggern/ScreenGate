@@ -101,7 +101,7 @@ func (s *clientState) account(seconds int, now time.Time) {
 }
 
 func (s *clientState) prepareReport(deviceID, username, sessionState string, now time.Time) (heartbeat, error) {
-	if s.Report == nil {
+	if s.Report == nil || s.Report.SessionState != sessionState {
 		var random [16]byte
 		if _, err := rand.Read(random[:]); err != nil {
 			return heartbeat{}, err
@@ -113,7 +113,7 @@ func (s *clientState) prepareReport(deviceID, username, sessionState string, now
 		s.PendingSeconds = 0
 		s.PendingDate = ""
 	}
-	// Session state is informational, not part of the idempotent usage charge.
+	// A changed session state must have a fresh ID so the server observes it.
 	s.Report.SessionState = sessionState
 	return *s.Report, nil
 }

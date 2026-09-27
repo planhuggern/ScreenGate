@@ -25,18 +25,16 @@ Lagre tokenet i beskyttet klientkonfigurasjon. Serveren lagrer bare en SHA-256-h
   "device_id":"Nora-PC",
   "user":"Nora",
   "heartbeat_id":"tilfeldig-unik-id-per-rapport",
-  "session_state":"active",
-  "active_seconds":30,
-  "activity_date":"2026-09-18",
-  "reported_at":"2026-09-18T15:00:00+02:00"
+  "locked":false
 }
 ```
 
-- `heartbeat_id` beholdes når samme rapport prøves igjen. Ny bruk som oppstår mens en rapport venter på svar legges i neste rapport.
-- `session_state` er `active`, `idle` eller `locked`. Klienten fortsetter å kontakte serveren mens økten er låst, slik at nye regler kan hentes.
-- `active_seconds` er målt bruk siden forrige rapport ble opprettet, mellom 0 og 86400. Serveren begrenser summen til tilgjengelig forløpt servertid. Første kontakt etablerer målingens start og belastes ikke.
-- `activity_date` er datoen fra den sist gyldige serverbeslutningen. Det gjør at en forsinket rapport fortsatt kan belastes den opprinnelige dagen. Dato i fremtiden eller aktivitet før enheten fantes blir avvist. Rapporten kan prøves igjen etter flere dagers fravær.
-- `reported_at` brukes ikke som autoritativ klokke. Serveren bruker mottakstidspunktet sitt.
+- `locked` er `true` mens Windows er låst, ellers `false`. Klienten sender heartbeat ved endring og hvert 30. sekund, også mens den er låst.
+- Serveren beregner bruk fra sine egne mottakstidspunkter. Første heartbeat starter målingen uten belastning. Intervallet frem til neste heartbeat telles bare hvis forrige status var ulåst. Dermed avslutter låsing et bruksintervall, og opplåsing starter et nytt.
+- Opphold på mer enn 63 sekunder belastes ikke. Tid uten kontakt etterregistreres ikke. Ulåst tid telles også uten tastatur- eller museaktivitet.
+- `heartbeat_id` identifiserer en rapport. Samme rapport kan prøves igjen med samme ID; endret låsestatus må ha ny ID.
+- For eldre klienter godtas `session_state` (`active`, `idle`, `locked`). `locked` har forrang når feltet finnes. Manglende status regnes som ulåst.
+- Eldre felter `active_seconds`, `activity_date` og `reported_at` ignoreres i tidsberegningen. Intervaller fordeles over døgn og timer etter serverens tidssone.
 
 Eksempel på tillatelse:
 

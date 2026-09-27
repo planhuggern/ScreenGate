@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -397,5 +398,45 @@ func TestDownloadInstallerRejectsOtherMethods(t *testing.T) {
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestHeartbeatLockStateControlsServerAccounting(t *testing.T) {
+	app := testApplication(t)
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	app.service.location = time.UTC
+	app.service.now = func() time.Time { return now }
+	for i, step := range []struct {
+		advance int
+		locked  bool
+		want    int
+	}{
+		{0, true, 0}, // startup on the lock screen
+		{30, true, 0},
+		{30, false, 0}, // unlocking never charges the locked interval
+		{30, false, 30},
+		{10, true, 40}, // locking closes the preceding unlocked interval
+		{30, true, 40},
+		{30, true, 40},
+		{30, false, 40},
+		{30, false, 70},
+		{64, false, 70}, // disconnected intervals are not charged
+		{30, false, 100},
+	} {
+		now = now.Add(time.Duration(step.advance) * time.Second)
+		// A contradictory legacy state and bogus usage cannot override locked.
+		body := fmt.Sprintf(`{"device_id":"pc","user":"child","heartbeat_id":"%d","locked":%t,"session_state":"active","active_seconds":999999,"activity_date":"invalid","reported_at":"2000-01-01T00:00:00Z"}`, i, step.locked)
+		rec := httptest.NewRecorder()
+		app.heartbeatHandler(rec, httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("step %d: %d %s", i, rec.Code, rec.Body)
+		}
+		var got response
+		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got.DailyTotalSeconds != step.want {
+			t.Fatalf("step %d: total=%d want=%d", i, got.DailyTotalSeconds, step.want)
+		}
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestOfflineUsageRemainsOnItsOriginalDayAfterLongShutdown(t *testing.T) {
+func TestOfflineUsageIsNotChargedAfterLongShutdown(t *testing.T) {
 	s := testApplication(t).service
 	s.location = osloLocation(t)
 	now := time.Date(2026, 9, 18, 23, 58, 0, 0, s.location)
@@ -13,8 +13,7 @@ func TestOfflineUsageRemainsOnItsOriginalDayAfterLongShutdown(t *testing.T) {
 	if _, err := s.recordHeartbeat(heartbeat{User: "child", DeviceID: "pc", HeartbeatID: "first", SessionState: "active"}); err != nil {
 		t.Fatal(err)
 	}
-	// Ninety seconds were used before a shutdown; the durable report returns
-	// a week later and must neither block retries forever nor debit today.
+	// A stale client report cannot charge time across a long heartbeat gap.
 	now = now.AddDate(0, 0, 7)
 	result, err := s.recordHeartbeat(heartbeat{User: "child", DeviceID: "pc", HeartbeatID: "offline", ActivityDate: "2026-09-18", ActiveSeconds: 90, SessionState: "locked"})
 	if err != nil {
@@ -24,19 +23,19 @@ func TestOfflineUsageRemainsOnItsOriginalDayAfterLongShutdown(t *testing.T) {
 		t.Fatalf("today was charged %d seconds", result.DailyTotalSeconds)
 	}
 	previous, err := s.dailyTotal("child", "2026-09-18")
-	if err != nil || previous != 90 {
+	if err != nil || previous != 0 {
 		t.Fatalf("original day=%d err=%v", previous, err)
 	}
 	if _, err := s.recordHeartbeat(heartbeat{User: "child", DeviceID: "pc", HeartbeatID: "offline", ActivityDate: "2026-09-18", ActiveSeconds: 90}); err != nil {
 		t.Fatal(err)
 	}
 	previous, _ = s.dailyTotal("child", "2026-09-18")
-	if previous != 90 {
+	if previous != 0 {
 		t.Fatal("retry doubled past usage")
 	}
 }
 
-func TestQueuedReportsCanUseElapsedTimeAcrossAcknowledgements(t *testing.T) {
+func TestQueuedReportsCannotExceedServerElapsedTime(t *testing.T) {
 	s := testApplication(t).service
 	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return now }
@@ -60,7 +59,7 @@ func TestQueuedReportsCanUseElapsedTimeAcrossAcknowledgements(t *testing.T) {
 	}
 }
 
-func TestActivityDateCannotBeFutureOrBeforeDeviceExisted(t *testing.T) {
+func TestLegacyActivityDateIsIgnored(t *testing.T) {
 	s := testApplication(t).service
 	s.location = time.UTC
 	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
@@ -69,8 +68,22 @@ func TestActivityDateCannotBeFutureOrBeforeDeviceExisted(t *testing.T) {
 	now = now.Add(30 * time.Second)
 	for _, date := range []string{"2026-09-19", "not-a-date", "2026-09-17"} {
 		_, err := s.recordHeartbeat(heartbeat{User: "child", DeviceID: "pc", HeartbeatID: "bad-" + date, ActiveSeconds: 30, ActivityDate: date})
-		if err != errInvalidHeartbeat {
+		if err != nil {
 			t.Fatalf("date=%q err=%v", date, err)
 		}
+	}
+}
+
+func TestUnlockedIdleHeartbeatCountsServerTime(t *testing.T) {
+	s := testApplication(t).service
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	if _, err := s.recordHeartbeat(heartbeat{User: "child", DeviceID: "pc", SessionState: "idle"}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(30 * time.Second)
+	got, err := s.recordHeartbeat(heartbeat{User: "child", DeviceID: "pc", SessionState: "idle"})
+	if err != nil || got.DailyTotalSeconds != 30 {
+		t.Fatalf("total=%d err=%v", got.DailyTotalSeconds, err)
 	}
 }

@@ -313,7 +313,7 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if !validIdentity(h.DeviceID) || !validIdentity(h.User) || h.ActiveSeconds < 0 || h.ActiveSeconds > 86400 {
+	if !validIdentity(h.DeviceID) || !validIdentity(h.User) {
 		writeAPIError(w, http.StatusBadRequest, "invalid heartbeat")
 		return
 	}

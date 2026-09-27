@@ -99,20 +99,12 @@ func (r *repository) userPolicyVersion(user string) (int, error) {
 }
 
 func (r *repository) addHeartbeat(h heartbeat) error {
-	return r.addHeartbeatInLocation(h, time.Local)
-}
-
-func (r *repository) addHeartbeatInLocation(h heartbeat, location *time.Location) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	var requestID any
-	var credited any
-	var creditedUntil any
-	accountingTime := h.ReportedAt
-	available := int64(0)
 	if h.HeartbeatID != "" {
 		requestID = h.HeartbeatID
 		var existing int
@@ -123,54 +115,42 @@ func (r *repository) addHeartbeatInLocation(h heartbeat, location *time.Location
 		if err != sql.ErrNoRows {
 			return err
 		}
-		var previous string
-		var firstReported int64
-		err = tx.QueryRow(`SELECT reported_at, first_reported_unix, available_milliseconds FROM user_presence WHERE user = ? AND device_id = ?`, h.User, h.DeviceID).Scan(&previous, &firstReported, &available)
-		milliseconds := int64(0)
-		until := h.ReportedAt
-		if err == nil {
-			at, err := time.Parse(time.RFC3339Nano, previous)
-			if err != nil {
-				return err
-			}
-			// Keep unused elapsed time: reports queued during network transit
-			// can arrive back-to-back after acknowledgement and still represent
-			// real usage. The balance bounds cumulative credit by server time.
-			available = min(maxReportedActivity.Milliseconds(), available+max(0, h.ReportedAt.Sub(at).Milliseconds()))
-			milliseconds = min(int64(h.ActiveSeconds)*1000, available)
-			available -= milliseconds
-			if h.ActivityDate != "" {
-				day, err := time.ParseInLocation("2006-01-02", h.ActivityDate, location)
-				if err != nil {
-					return errInvalidHeartbeat
-				}
-				dayEnd := day.AddDate(0, 0, 1)
-				if firstReported >= dayEnd.Unix() && milliseconds > 0 {
-					return errInvalidHeartbeat
-				}
-				if dayEnd.Before(until) {
-					until = dayEnd
-				}
-			}
-		} else if err != sql.ErrNoRows {
+	}
+	// Only server receipt times and the previous lock state determine usage.
+	// A lock closes the unlocked interval; an unlock starts a new one.
+	milliseconds := int64(0)
+	var previous, previousState string
+	err = tx.QueryRow(`SELECT reported_at, session_state FROM user_presence WHERE user = ? AND device_id = ?`, h.User, h.DeviceID).Scan(&previous, &previousState)
+	if err == nil {
+		at, err := time.Parse(time.RFC3339Nano, previous)
+		if err != nil {
 			return err
 		}
-		credited = milliseconds
-		creditedUntil = until.UTC().Format(time.RFC3339Nano)
-		accountingTime = until
+		gap := h.ReportedAt.Sub(at)
+		if previousState != "locked" && gap > 0 && gap <= maxHeartbeatGap {
+			milliseconds = gap.Milliseconds()
+		}
+	} else if err != sql.ErrNoRows {
+		return err
 	}
 	state := h.SessionState
+	if h.Locked != nil {
+		state = "active"
+		if *h.Locked {
+			state = "locked"
+		}
+	}
 	if state == "" {
 		state = "active"
 	}
 	_, err = tx.Exec(`INSERT INTO heartbeats (reported_at, reported_unix, accounting_unix, device_id, user, heartbeat_id, credited_milliseconds, credited_until, session_state)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, h.ReportedAt.UTC().Format(time.RFC3339Nano), h.ReportedAt.Unix(), accountingTime.Unix(), h.DeviceID, h.User, requestID, credited, creditedUntil, state)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, h.ReportedAt.UTC().Format(time.RFC3339Nano), h.ReportedAt.Unix(), h.ReportedAt.Unix(), h.DeviceID, h.User, requestID, milliseconds, h.ReportedAt.UTC().Format(time.RFC3339Nano), state)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(`INSERT INTO user_presence (user, device_id, reported_at, reported_unix, first_reported_unix, available_milliseconds, session_state) VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user, device_id) DO UPDATE SET reported_at = excluded.reported_at, reported_unix = excluded.reported_unix, available_milliseconds = excluded.available_milliseconds, session_state = excluded.session_state
-		WHERE excluded.reported_unix >= user_presence.reported_unix`, h.User, h.DeviceID, h.ReportedAt.UTC().Format(time.RFC3339Nano), h.ReportedAt.Unix(), h.ReportedAt.Unix(), available, state)
+		WHERE excluded.reported_unix >= user_presence.reported_unix`, h.User, h.DeviceID, h.ReportedAt.UTC().Format(time.RFC3339Nano), h.ReportedAt.Unix(), h.ReportedAt.Unix(), 0, state)
 	if err != nil {
 		return err
 	}

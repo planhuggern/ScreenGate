@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestMeasuredHeartbeatAccountingAndIdempotency(t *testing.T) {
+func TestServerHeartbeatAccountingAndIdempotency(t *testing.T) {
 	s := testApplication(t).service
 	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return now }
@@ -24,16 +24,15 @@ func TestMeasuredHeartbeatAccountingAndIdempotency(t *testing.T) {
 		return got
 	}
 	record("start", "active", 0, 0, 0)
-	record("work", "active", 17, 30, 17)
-	record("lock", "locked", 8, 10, 25)
-	record("locked-poll", "locked", 0, 30, 25)
-	record("unlock", "active", 0, 30, 25)
-	record("active-again", "active", 30, 30, 55)
-	record("active-again", "active", 30, 30, 55) // lost response retried
-	record("after-retry", "active", 60, 30, 115)
-	// Queued usage can consume unused elapsed time, but never more than the
-	// total 195 seconds that have elapsed since the first server receipt.
-	record("clamped", "active", 86400, 5, 195)
+	record("work", "active", 17, 30, 30)
+	record("lock", "locked", 8, 10, 40)
+	record("locked-poll", "locked", 0, 30, 40)
+	record("unlock", "active", 0, 30, 40)
+	record("active-again", "active", 30, 30, 70)
+	record("active-again", "active", 30, 30, 70) // lost response retried
+	record("after-retry", "active", 60, 30, 130)
+	// Client-reported usage cannot consume time spent locked.
+	record("clamped", "active", 86400, 5, 135)
 	var count int
 	if err := s.repository.db.QueryRow(`SELECT COUNT(*) FROM heartbeats WHERE user = 'child'`).Scan(&count); err != nil {
 		t.Fatal(err)
