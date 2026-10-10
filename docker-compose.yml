@@ -48,7 +48,7 @@ services:
       SCREENGATE_TIMEZONE: ${SCREENGATE_TIMEZONE:-Europe/Oslo}
       SCREENGATE_TRUSTED_ORIGINS: ${SCREENGATE_TRUSTED_ORIGINS:-}
     ports:
-      - "${SCREENGATE_BIND:-127.0.0.1}:${SCREENGATE_PORT:-8081}:8080"
+      - "8081:8080"
     volumes:
       - screengate-data:/data
     read_only: true
