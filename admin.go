@@ -242,3 +242,34 @@ func (a *application) exportHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(content.Bytes())
 }
+
+func (a *application) userQuotaHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	user := r.PostForm.Get("user")
+	quota, err := parseQuota(r.PostForm.Get("hours"), r.PostForm.Get("minutes"))
+	if !validIdentity(user) || err != nil {
+		http.Error(w, "invalid quota", http.StatusBadRequest)
+		return
+	}
+	if err := a.service.setUserQuota(user, quota); err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	a.audit(user, "quota", strconv.Itoa(quota))
+	http.Redirect(w, r, a.adminPath, http.StatusSeeOther)
+}
+
+func parseQuota(hoursText, minutesText string) (int, error) {
+	h, hErr := strconv.Atoi(hoursText)
+	m, mErr := strconv.Atoi(minutesText)
+	if hErr != nil || mErr != nil || h < 0 || h > 24 || m < 0 || m > 59 || (h == 24 && m != 0) {
+		return 0, errors.New("quota must be between 0 and 24 hours")
+	}
+	return h*3600 + m*60, nil
+}
