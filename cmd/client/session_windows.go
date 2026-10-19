@@ -47,16 +47,19 @@ func currentSessionState(idleTimeout time.Duration) string {
 	if ok, _, _ := processIDToSessionID.Call(uintptr(os.Getpid()), uintptr(unsafe.Pointer(&sessionID))); ok == 0 {
 		return "locked"
 	}
-	var info *uint32
+	var info *byte
 	var size uint32
-	const wtsConnectState = 8
-	ok, _, _ := querySessionInformation.Call(0, uintptr(sessionID), wtsConnectState, uintptr(unsafe.Pointer(&info)), uintptr(unsafe.Pointer(&size)))
+	// WTSActive alone also describes a locked console session. Read the
+	// explicit lock flag, even when OpenInputDesktop still returns Default.
+	const wtsSessionInfoEx = 25
+	ok, _, _ := querySessionInformation.Call(0, uintptr(sessionID), wtsSessionInfoEx, uintptr(unsafe.Pointer(&info)), uintptr(unsafe.Pointer(&size)))
+	if info != nil {
+		defer freeSessionMemory.Call(uintptr(unsafe.Pointer(info)))
+	}
 	if ok == 0 || info == nil {
 		return "locked"
 	}
-	connected := size >= 4 && *info == 0 // WTSActive
-	freeSessionMemory.Call(uintptr(unsafe.Pointer(info)))
-	if !connected {
+	if !wtsSessionUnlocked(unsafe.Slice(info, int(size)), sessionID) {
 		return "locked"
 	}
 	const desktopReadObjects = 0x0001

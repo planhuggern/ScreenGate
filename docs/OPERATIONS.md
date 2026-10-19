@@ -81,6 +81,8 @@ Logg: `C:\Program Files\ScreenGate\update.log`. En mislykket sjekk prøves igjen
 
 ## Vanlige feil
 
+**Tiden går mens Windows er låst:** Oppdater serveren med den nye klientfilen og la klientoppdateringen kjøre på PC-en. En administrator kan starte den straks med `Start-ScheduledTask -TaskName 'ScreenGate Update'`. Klienten kontrollerer nå Windows-øktens eksplisitte låseflagg i tillegg til skrivebordet; en låst konsolløkt kan fortsatt ha tilkoblingsstatus `WTSActive`. Kontroller at brukerens `client.log` viser `session_state=locked` etter Win+L og `session_state=active` etter opplåsing. La maskinen være låst i minst to minutter: forbruket skal stå stille etter at siste rapport fra før låsing er behandlet, og først øke igjen ved ulåst bruk. Gjenta gjerne med raskt brukerbytte. PC-er uten automatisk oppdatering må få klienten oppdatert med installasjonsskriptet.
+
 **Serveren starter ikke:** Kontroller `ADMIN_PASSWORD`, tidssone og skrivetilgang til databasen. `docker compose logs --tail=100` viser oppstartsfeil. `GET /healthz` skal returnere `{"status":"ok"}`.
 
 **`attempt to write a readonly database` etter oppgradering:** Kjør `docker compose up --build -d` med oppdatert Compose-fil, og kontroller `docker compose logs data-permissions`. Ikke bruk `--no-deps`, siden det hopper over klargjøringen av volumet. Ikke slett datavolumet; det inneholder historikk og innstillinger.

@@ -33,10 +33,12 @@ Disse endepunktene er offentlige; privat signeringsnøkkel eller enhetsnøkler s
   "device_id":"Nora-PC",
   "user":"Nora",
   "heartbeat_id":"tilfeldig-unik-id-per-rapport",
+  "client_version":"2026.10.19.1",
   "locked":false
 }
 ```
 
+- `client_version` identifiserer klientutgaven. Samme versjons-ID sendes i `User-Agent: ScreenGate-Client/2026.10.19.1` ved heartbeat og programrapporter. Eldre klienter kan utelate feltet.
 - `locked` er `true` mens Windows er låst, ellers `false`. Klienten sender heartbeat ved endring og hvert 30. sekund, også mens den er låst.
 - Serveren beregner bruk fra sine egne mottakstidspunkter. Første heartbeat starter målingen uten belastning. Intervallet frem til neste heartbeat telles bare hvis forrige status var ulåst. Dermed avslutter låsing et bruksintervall, og opplåsing starter et nytt.
 - Opphold på mer enn 63 sekunder belastes ikke. Tid uten kontakt etterregistreres ikke. Ulåst tid telles også uten tastatur- eller museaktivitet.

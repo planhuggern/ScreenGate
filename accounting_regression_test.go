@@ -87,3 +87,34 @@ func TestUnlockedIdleHeartbeatCountsServerTime(t *testing.T) {
 		t.Fatalf("total=%d err=%v", got.DailyTotalSeconds, err)
 	}
 }
+
+func TestLockedHeartbeatsStopQuotaUntilUnlock(t *testing.T) {
+	s := testApplication(t).service
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	for _, step := range []struct {
+		after time.Duration
+		state string
+		want  int
+	}{
+		{0, "locked", 0},
+		{30 * time.Second, "locked", 0},
+		{time.Second, "active", 0},
+		{30 * time.Second, "active", 30},
+		{time.Second, "locked", 31},
+		{30 * time.Second, "locked", 31},
+		{30 * time.Second, "locked", 31},
+		{30 * time.Second, "locked", 31},
+		{time.Second, "active", 31},
+		{30 * time.Second, "active", 61},
+	} {
+		now = now.Add(step.after)
+		result, err := s.recordHeartbeat(heartbeat{User: "child", DeviceID: "pc", SessionState: step.state})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.DailyTotalSeconds != step.want {
+			t.Fatalf("at %s state=%s total=%d, want %d", now, step.state, result.DailyTotalSeconds, step.want)
+		}
+	}
+}

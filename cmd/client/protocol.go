@@ -13,6 +13,9 @@ import (
 	"time"
 )
 
+// Bump for each client release, including fixes distributed by the updater.
+const clientVersion = "2026.10.19.1"
+
 type heartbeat struct {
 	DeviceID      string    `json:"device_id"`
 	User          string    `json:"user"`
@@ -86,7 +89,7 @@ func postJSON(ctx context.Context, client *http.Client, endpoint, token string, 
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Authorization", "Bearer "+token)
-	request.Header.Set("User-Agent", "ScreenGate-Client/2")
+	request.Header.Set("User-Agent", "ScreenGate-Client/"+clientVersion)
 	result, err := client.Do(request)
 	if err != nil {
 		return nil, err
@@ -101,11 +104,12 @@ func postJSON(ctx context.Context, client *http.Client, endpoint, token string, 
 func postHeartbeat(ctx context.Context, client *http.Client, endpoint, token string, report heartbeat) (response, error) {
 	// Usage is computed by the server. Local estimates remain in saved state only.
 	payload := struct {
-		DeviceID    string `json:"device_id"`
-		User        string `json:"user"`
-		HeartbeatID string `json:"heartbeat_id"`
-		Locked      bool   `json:"locked"`
-	}{report.DeviceID, report.User, report.HeartbeatID, report.SessionState == "locked"}
+		DeviceID      string `json:"device_id"`
+		User          string `json:"user"`
+		HeartbeatID   string `json:"heartbeat_id"`
+		Locked        bool   `json:"locked"`
+		ClientVersion string `json:"client_version"`
+	}{report.DeviceID, report.User, report.HeartbeatID, report.SessionState == "locked", clientVersion}
 	httpResponse, err := postJSON(ctx, client, endpoint, token, payload)
 	if err != nil {
 		return response{}, err

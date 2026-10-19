@@ -6,6 +6,7 @@ import (
 )
 
 type heartbeat struct {
+	ClientVersion string    `json:"client_version,omitempty"`
 	Locked        *bool     `json:"locked,omitempty"`
 	DeviceID      string    `json:"device_id"`
 	User          string    `json:"user"`

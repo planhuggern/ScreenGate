@@ -52,12 +52,18 @@ func TestHeartbeatProtocolAuthenticatesAndPreservesReport(t *testing.T) {
 		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer secret" {
 			t.Error("request lacks authentication")
 		}
+		if got := r.UserAgent(); got != "ScreenGate-Client/"+clientVersion {
+			t.Errorf("User-Agent=%q", got)
+		}
 		var report map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
 			t.Error(err)
 		}
 		if report["heartbeat_id"] != "idempotent-report" || report["locked"] != false || report["active_seconds"] != nil || report["activity_date"] != nil {
 			t.Errorf("report=%+v", report)
+		}
+		if report["client_version"] != clientVersion {
+			t.Errorf("client_version=%v, want %s", report["client_version"], clientVersion)
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_, _ = w.Write([]byte(`{"action":"allow","lease_seconds":90,"remaining_seconds":120,"quota_seconds":600,"policy_version":7,"future_field":true}`))
