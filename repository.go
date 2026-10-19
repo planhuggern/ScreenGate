@@ -99,6 +99,17 @@ func (r *repository) userPolicyVersion(user string) (int, error) {
 }
 
 func (r *repository) addHeartbeat(h heartbeat) error {
+	_, _, err := r.addHeartbeatObserved(h)
+	return err
+}
+
+// Return the exact credit committed for this request, including duplicate retries.
+func (r *repository) addHeartbeatObserved(h heartbeat) (credit int64, duplicate bool, resultErr error) {
+	resultErr = r.insertHeartbeat(h, &credit, &duplicate)
+	return
+}
+
+func (r *repository) insertHeartbeat(h heartbeat, credit *int64, duplicate *bool) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
@@ -110,6 +121,7 @@ func (r *repository) addHeartbeat(h heartbeat) error {
 		var existing int
 		err := tx.QueryRow(`SELECT 1 FROM heartbeats WHERE user = ? AND device_id = ? AND heartbeat_id = ?`, h.User, h.DeviceID, h.HeartbeatID).Scan(&existing)
 		if err == nil {
+			*duplicate = true
 			return tx.Commit()
 		}
 		if err != sql.ErrNoRows {
@@ -154,7 +166,11 @@ func (r *repository) addHeartbeat(h heartbeat) error {
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	*credit = milliseconds
+	return nil
 }
 
 func (r *repository) heartbeatsForUser(user string) ([]recordedHeartbeat, error) {
@@ -245,7 +261,10 @@ func (r *repository) deleteUser(user string) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"pairing_codes", "devices", "user_presence", "daily_bonuses", "weekday_policies", "user_settings", "heartbeats", "user_quotas", "audit_events"} {
+	if _, err := tx.Exec(`DELETE FROM heartbeat_monitor WHERE device IN (SELECT id FROM monitor_devices WHERE user=?)`, user); err != nil {
+		return err
+	}
+	for _, table := range []string{"monitor_devices", "pairing_codes", "devices", "user_presence", "daily_bonuses", "weekday_policies", "user_settings", "heartbeats", "user_quotas", "audit_events"} {
 		if _, err := tx.Exec("DELETE FROM "+table+" WHERE user = ?", user); err != nil {
 			return err
 		}

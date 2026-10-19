@@ -9,20 +9,22 @@ import (
 var errInvalidHeartbeat = errors.New("invalid heartbeat")
 
 type heartbeatResult struct {
-	Action            string
-	DailyTotalSeconds int
-	PolicyVersion     int
-	RemainingSeconds  int
-	ReportedAt        time.Time
-	Reason            string
-	QuotaSeconds      int
-	Unlimited         bool
-	NextAllowedAt     time.Time
-	NextTransitionAt  time.Time
-	NextLockAt        time.Time
-	LeaseSeconds      int
-	ServerTime        time.Time
-	PolicyDate        string
+	CreditedMilliseconds int64
+	Duplicate            bool
+	Action               string
+	DailyTotalSeconds    int
+	PolicyVersion        int
+	RemainingSeconds     int
+	ReportedAt           time.Time
+	Reason               string
+	QuotaSeconds         int
+	Unlimited            bool
+	NextAllowedAt        time.Time
+	NextTransitionAt     time.Time
+	NextLockAt           time.Time
+	LeaseSeconds         int
+	ServerTime           time.Time
+	PolicyDate           string
 }
 
 type screenTimeService struct {
@@ -44,7 +46,8 @@ func (s *screenTimeService) recordHeartbeat(h heartbeat) (heartbeatResult, error
 	defer s.mu.Unlock()
 	h.ReportedAt = s.now().In(s.location)
 	date := h.ReportedAt.Format("2006-01-02")
-	if err := s.repository.addHeartbeat(h); err != nil {
+	credit, duplicate, err := s.repository.addHeartbeatObserved(h)
+	if err != nil {
 		return heartbeatResult{}, err
 	}
 
@@ -58,20 +61,22 @@ func (s *screenTimeService) recordHeartbeat(h heartbeat) (heartbeatResult, error
 	}
 	decision := evaluatePolicy(policy, dailyTotal, h.ReportedAt)
 	return heartbeatResult{
-		Action:            decision.Action,
-		DailyTotalSeconds: dailyTotal,
-		PolicyVersion:     policy.PolicyVersion,
-		RemainingSeconds:  decision.RemainingSeconds,
-		ReportedAt:        h.ReportedAt,
-		Reason:            decision.Reason,
-		QuotaSeconds:      decision.QuotaSeconds,
-		Unlimited:         decision.Unlimited,
-		NextAllowedAt:     decision.NextAllowedAt,
-		NextTransitionAt:  decision.NextTransitionAt,
-		NextLockAt:        decision.NextLockAt,
-		LeaseSeconds:      decision.LeaseSeconds,
-		ServerTime:        h.ReportedAt,
-		PolicyDate:        date,
+		CreditedMilliseconds: credit,
+		Duplicate:            duplicate,
+		Action:               decision.Action,
+		DailyTotalSeconds:    dailyTotal,
+		PolicyVersion:        policy.PolicyVersion,
+		RemainingSeconds:     decision.RemainingSeconds,
+		ReportedAt:           h.ReportedAt,
+		Reason:               decision.Reason,
+		QuotaSeconds:         decision.QuotaSeconds,
+		Unlimited:            decision.Unlimited,
+		NextAllowedAt:        decision.NextAllowedAt,
+		NextTransitionAt:     decision.NextTransitionAt,
+		NextLockAt:           decision.NextLockAt,
+		LeaseSeconds:         decision.LeaseSeconds,
+		ServerTime:           h.ReportedAt,
+		PolicyDate:           date,
 	}, nil
 }
 

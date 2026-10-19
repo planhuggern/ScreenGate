@@ -86,6 +86,16 @@ Last ned `/downloads/uninstall.ps1` fra serveren, og kjør som administrator:
 
 Dette fjerner oppgaven og enhetsnøkkelen for akkurat denne Windows-brukeren. Andre brukeres installasjoner, den delte programfilen og lokale logger blir beholdt. Trekk også tilbake enheten med **Koble fra** i foreldreoversikten. Tilbakekalling alene avinstallerer ikke klienten og vil føre til at den nekter videre skjermtilgang.
 
+## Åpen heartbeat-overvåking
+
+Åpne **`/monitor`**, eller følg lenken fra forsiden eller foreldreoversikten. Siden krever ikke innlogging og oppdateres hvert tiende sekund. Den viser anonym enhetsstatus og de 100 siste heartbeat-forespørslene fra autentiserte enheter, inkludert duplikater og avviste rapporter. Enhetsfilteret viser rapporter blant disse 100. Loggen lagres i SQLite og beholdes ved serveromstart; den starter når denne serverversjonen tas i bruk.
+
+Detaljene inkluderer mottakstid, opphold siden forrige rapport, øktstatus, klientversjon, eventuelle rapporterte aktivitetssekunder, faktisk belastning, kvote, gjenværende tid, serverens beslutning, tillatelsens varighet og HTTP-status. Manglende verdier vises som `—`, ikke null. Nyere klienter sender ikke egne aktivitetssekunder; serveren beregner belastningen fra rapportintervallene.
+
+Enheter får faste aliaser som «Enhet 1». Under **Enheter og tilkobling** i den innloggede foreldreoversikten vises hvilken enhet aliaset tilhører, med lenke til overvåkingen. Den åpne siden viser ikke navn, maskinnavn, nøkler, IP-adresser eller programnavn. Sletting av en bruker fjerner også tilhørende overvåkingsdata.
+
+Gult markerer mulige avvik, avviste rapporter og rapportopphold over 63 sekunder. En PC som er avslått eller sover kan også slutte å rapportere. Serveren kan ikke alene fastslå om manglende rapporter skyldes nettbrudd, krasj eller at klienten er avsluttet. Overvåkingen endrer ikke klientens telling eller låsing.
+
 ## Hvordan tiden beregnes
 
 Klienten måler bruk av en ulåst, tilkoblet Windows-økt. En låst økt, utlogget bruker og søvn gir ikke skjermtid. Video og annen passiv skjermbruk teller som standard. Valgfritt `-idle-timeout 5m` stopper opptellingen etter fem minutter uten inndata; dette bør ikke brukes hvis passiv video skal telle.

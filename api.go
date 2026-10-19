@@ -60,28 +60,47 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var h heartbeat
-	if err := decodeJSON(w, r, &h); err != nil {
+	receivedAt := a.service.now()
+	status, monitorReason := http.StatusBadRequest, "invalid_json"
+	var result heartbeatResult
+	defer func() {
+		a.observeHeartbeat(r, h, result, receivedAt, status, monitorReason)
+	}()
+	payload := struct {
+		*heartbeat
+		ActiveSeconds *int `json:"active_seconds"`
+	}{heartbeat: &h}
+	if err := decodeJSON(w, r, &payload); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	if payload.ActiveSeconds != nil {
+		h.ActiveSeconds = *payload.ActiveSeconds
+		h.ReportedActivityPresent = true
+	}
+	monitorReason = "invalid_heartbeat"
 	if !validIdentity(h.DeviceID) || !validIdentity(h.User) {
 		writeAPIError(w, http.StatusBadRequest, "invalid heartbeat")
 		return
 	}
 	if !bindDeviceIdentity(r, &h.User, &h.DeviceID) {
+		status, monitorReason = http.StatusForbidden, "identity_mismatch"
 		writeAPIError(w, http.StatusForbidden, "device identity mismatch")
 		return
 	}
-	result, err := a.service.recordHeartbeat(h)
+	var err error
+	result, err = a.service.recordHeartbeat(h)
 	if err != nil {
 		if errors.Is(err, errInvalidHeartbeat) {
 			writeAPIError(w, http.StatusBadRequest, "invalid heartbeat")
 			return
 		}
 		log.Printf("heartbeat: %v", err)
+		status, monitorReason = http.StatusServiceUnavailable, "decision_unavailable"
 		writeAPIError(w, http.StatusServiceUnavailable, "screen-time decision unavailable")
 		return
 	}
+	status, monitorReason = http.StatusOK, result.Reason
 	a.recordDeviceSeen(r, result.ReportedAt)
 	writeJSON(w, http.StatusOK, response{Action: result.Action, Message: "ok", DailyTotalSeconds: result.DailyTotalSeconds, PolicyVersion: result.PolicyVersion, RemainingSeconds: result.RemainingSeconds, QuotaSeconds: result.QuotaSeconds, Unlimited: result.Unlimited, LeaseSeconds: result.LeaseSeconds, Reason: result.Reason, ServerTime: result.ServerTime, PolicyDate: result.PolicyDate, NextAllowedAt: result.NextAllowedAt, NextTransitionAt: result.NextTransitionAt, NextLockAt: result.NextLockAt})
 }

@@ -6,15 +6,16 @@ import (
 )
 
 type heartbeat struct {
-	ClientVersion string    `json:"client_version,omitempty"`
-	Locked        *bool     `json:"locked,omitempty"`
-	DeviceID      string    `json:"device_id"`
-	User          string    `json:"user"`
-	ActiveSeconds int       `json:"active_seconds"`
-	ReportedAt    time.Time `json:"reported_at"`
-	HeartbeatID   string    `json:"heartbeat_id,omitempty"`
-	SessionState  string    `json:"session_state,omitempty"`
-	ActivityDate  string    `json:"activity_date,omitempty"`
+	ReportedActivityPresent bool      `json:"-"`
+	ClientVersion           string    `json:"client_version,omitempty"`
+	Locked                  *bool     `json:"locked,omitempty"`
+	DeviceID                string    `json:"device_id"`
+	User                    string    `json:"user"`
+	ActiveSeconds           int       `json:"active_seconds"`
+	ReportedAt              time.Time `json:"reported_at"`
+	HeartbeatID             string    `json:"heartbeat_id,omitempty"`
+	SessionState            string    `json:"session_state,omitempty"`
+	ActivityDate            string    `json:"activity_date,omitempty"`
 }
 
 type activity struct {

@@ -14,6 +14,7 @@ import (
 )
 
 type deviceView struct {
+	MonitorID                    int64
 	ID, DeviceID, User, LastSeen string
 	Revoked                      bool
 }
@@ -104,7 +105,7 @@ func (r *repository) deviceByToken(token string) (deviceIdentity, error) {
 }
 
 func (r *repository) deviceViews() ([]deviceView, error) {
-	rows, err := r.db.Query("SELECT id,device_id,user,last_seen,revoked FROM devices ORDER BY user,device_id,created_at DESC")
+	rows, err := r.db.Query(`SELECT d.id,d.device_id,d.user,d.last_seen,d.revoked,COALESCE(m.id,0) FROM devices d LEFT JOIN monitor_devices m ON m.user=d.user AND m.device_id=d.device_id ORDER BY d.user,d.device_id,d.created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +114,7 @@ func (r *repository) deviceViews() ([]deviceView, error) {
 	for rows.Next() {
 		var d deviceView
 		var seen sql.NullInt64
-		if err := rows.Scan(&d.ID, &d.DeviceID, &d.User, &seen, &d.Revoked); err != nil {
+		if err := rows.Scan(&d.ID, &d.DeviceID, &d.User, &seen, &d.Revoked, &d.MonitorID); err != nil {
 			return nil, err
 		}
 		if seen.Valid {

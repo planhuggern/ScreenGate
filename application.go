@@ -26,6 +26,7 @@ func (a *application) routes() http.Handler {
 	mux.HandleFunc("/favicon.ico", faviconHandler)
 	mux.HandleFunc("/enroll", a.enrollHandler)
 	mux.HandleFunc("/heartbeat", a.requireDevice(a.heartbeatHandler))
+	mux.HandleFunc("/monitor", a.monitorHandler)
 	mux.HandleFunc("/event", a.requireDevice(eventHandler))
 	mux.HandleFunc("/downloads/install.ps1", downloadInstallerHandler)
 	mux.HandleFunc("/downloads/update.ps1", func(w http.ResponseWriter, r *http.Request) { downloadScript(w, r, "update.ps1") })
