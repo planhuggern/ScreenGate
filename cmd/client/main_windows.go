@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -44,75 +43,19 @@ func configureLogging() {
 
 func main() {
 	configureLogging()
-	configPath := flag.String("config", "", "path to protected installation configuration")
-	testMode := flag.Bool("test-mode", false, "force safe test mode: never lock Windows")
-	enableLocking := flag.Bool("enable-locking", false, "explicitly enable Windows locking")
-	endpoint := flag.String("server", "", "ScreenGate heartbeat URL (http(s)://host:port/heartbeat)")
-	token := flag.String("token", "", "device token; prefer -token-file or protected -config")
-	tokenPath := flag.String("token-file", "", "file containing the device token")
-	userFlag := flag.String("user", "", "logical ScreenGate user assigned during pairing")
-	deviceFlag := flag.String("device-id", "", "device ID assigned during pairing")
-	idleTimeout := flag.Duration("idle-timeout", 0, "optional inactivity cutoff for app tracking, e.g. 5m; unlocked time still counts")
-	trackApps := flag.Bool("track-apps", false, "optional foreground application reporting (disabled by default)")
-	debugRemaining := flag.String("debug-remaining", "", "comma-separated remaining_seconds values for warning testing")
-	flag.Parse()
-	if *debugRemaining != "" {
-		runWarningDebug(*debugRemaining)
-		return
-	}
-	if *idleTimeout < 0 {
-		log.Fatal("idle-timeout cannot be negative")
-	}
-	config := clientConfig{Token: strings.TrimSpace(os.Getenv("SCREENGATE_DEVICE_TOKEN"))}
-	if *configPath != "" {
-		var err error
-		config, err = readConfig(*configPath)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	if *endpoint != "" {
-		config.Server = *endpoint
-	}
-	if *token != "" {
-		config.Token = strings.TrimSpace(*token)
-	}
-	if *tokenPath != "" {
-		data, err := os.ReadFile(*tokenPath)
-		if err != nil {
-			log.Fatal("cannot read device token: ", err)
-		}
-		config.Token = strings.TrimSpace(string(data))
-	}
-	if *userFlag != "" {
-		config.User = *userFlag
-	}
-	if *deviceFlag != "" {
-		config.DeviceID = *deviceFlag
-	}
-	if config.DeviceID == "" {
-		var err error
-		config.DeviceID, err = os.Hostname()
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	if config.User == "" {
-		currentUser, err := user.Current()
-		if err != nil {
-			log.Fatal(err)
-		}
-		config.User = currentUser.Username
-	}
-	var err error
-	config.Server, err = validateEndpoint(config.Server)
+	options, err := readClientOptions(flag.CommandLine, os.Args[1:])
 	if err != nil {
 		log.Fatal(err)
 	}
-	if config.Token == "" {
-		log.Fatal("device token missing; pair this Windows user using install.ps1")
+	if options.debugRemaining != "" {
+		runWarningDebug(options.debugRemaining)
+		return
 	}
-	guard := enforcement{enabled: (config.EnableLocking || *enableLocking) && !*testMode}
+	config, err := loadClientConfig(options)
+	if err != nil {
+		log.Fatal(err)
+	}
+	guard := enforcement{enabled: options.lockingEnabled(config)}
 	log.Printf("test_mode=%t locking_enabled=%t", !guard.enabled, guard.enabled)
 	identity := stateIdentity(config.Server, config.DeviceID, config.User)
 	mutex, err := acquireClientMutex(identity)
@@ -145,8 +88,8 @@ func main() {
 		},
 		showWarning:   showWarning,
 		foregroundApp: foregroundApp,
-		idleTimeout:   *idleTimeout,
-		trackApps:     *trackApps,
+		idleTimeout:   options.idleTimeout,
+		trackApps:     options.trackApps,
 	})
 }
 

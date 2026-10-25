@@ -7,10 +7,38 @@ Start med `runClient` i [runtime.go](../cmd/client/runtime.go). Den starter rapp
 | Ett sekund er gått | `poll` | Leser Windows-status, teller lokal bruk, lagrer, vurderer varsler og sjekker om økten skal låses. |
 | Tretti sekunder er gått | `report` | Sender heartbeat og eventuelle valgfritt aktiverte programrapporter. |
 | Heartbeat har fått svar eller feilet | `handleHeartbeat` | Behandler resultatet, lagrer tilstand og vurderer låsing. |
-| En valgfri programrapport er ferdig | `handleEvent` | Fjerner rapporten fra køen hvis sendingen lyktes. |
+| Svar på en programrapport | `handleEvent` | Fjerner rapporten fra køen hvis sendingen lyktes. Dette brukes når programsporing er slått på. |
 | Klienten avsluttes | `stop` | Avslutter lokal måling og lagrer tilstanden. |
 
 Det er disse metodene du følger for å forstå klientens hovedflyt. Nettverkssendingen skjer i bakgrunnen, og resultatet leveres tilbake til denne løkken. Dermed kan klienten fortsette å sjekke tid og låsing mens den venter på nettverket.
+
+En programrapport forteller hvilket program som var i forgrunnen, og hvor lenge. Programsporing er én eksisterende funksjon som slås på med `-track-apps`; den er avslått som standard og brukes ikke til tidsberegning. Serveren lagrer foreløpig ikke innholdet. Funksjonen beholdes for senere bruk.
+
+## Før løkken starter: innstillinger og oppstart
+
+`main` i [main_windows.go](../cmd/client/main_windows.go) følger denne rekkefølgen:
+
+1. Sett opp logging.
+2. Les kommandolinjeargumentene med `readClientOptions`.
+3. Hvis varseltesting er valgt med `-debug-remaining`, kjør den og avslutt.
+4. Last og kontroller innstillingene med `loadClientConfig`.
+5. Velg testmodus eller låsemodus med `lockingEnabled`.
+6. Kontroller at klienten ikke allerede kjører, og last lagret klienttilstand.
+7. Koble til Windows-funksjoner og tidsur, og kall `runClient`.
+
+De tre funksjonene for innstillinger ligger samlet i [config.go](../cmd/client/config.go). Det er ikke lagt til nye innstillinger. Ved vanlig installasjon brukes konfigurasjonsfilen som installasjonsskriptet oppretter.
+
+Når innstillinger oppgis flere steder, beholdes den eksisterende rekkefølgen:
+
+| Kilde | Hvordan den brukes |
+| --- | --- |
+| Miljøvariabelen `SCREENGATE_DEVICE_TOKEN` | Kan gi enhetsnøkkel ved manuell oppstart uten konfigurasjonsfil. |
+| Filen oppgitt med `-config` | Erstatter grunnkonfigurasjonen, også miljøvariabelens nøkkel. Manglende nøkkel i filen gir ikke automatisk tilbakefall til miljøvariabelen. |
+| Eksplisitte argumenter | Server, bruker, enhet og nøkkel overstyrer verdiene fra filen når argumentene er oppgitt. |
+| Filen oppgitt med `-token-file` | Overstyrer også en nøkkel oppgitt med `-token`. En fil som ikke kan leses gir feil. |
+| Windows-identitet | Brukes som standard for bruker og maskinnavn hvis de fortsatt mangler. Serveradresse og enhetsnøkkel må finnes og kontrolleres før klienten starter. |
+
+Låsing er aktivert hvis installasjonsfilen eller `-enable-locking` ber om det. `-test-mode` overstyrer begge og hindrer Windows-låsing. Uten aktivering av låsing brukes testmodus. Innstillingene for programsporing og inaktivitet sendes videre til løkken som før.
 
 ## Eksempel: barnet låser opp Windows
 
@@ -27,7 +55,8 @@ Hvis en rapport allerede venter på svar, starter ikke `sendHeartbeat` enda en p
 
 | Fil | Ansvar |
 | --- | --- |
-| [main_windows.go](../cmd/client/main_windows.go) | Starter programmet, leser oppsett og kobler til de faktiske Windows-funksjonene og tidsurene. |
+| [main_windows.go](../cmd/client/main_windows.go) | Bestemmer oppstartsrekkefølgen og kobler til de faktiske Windows-funksjonene og tidsurene. |
+| [config.go](../cmd/client/config.go) | Leser eksisterende argumenter og konfigurasjonsfil, bestemmer hvilken innstillingskilde som gjelder og kontrollerer resultatet. |
 | [runtime.go](../cmd/client/runtime.go) | Bestemmer rekkefølgen: les status, mål bruk, send rapporter, håndter svar, lagre og vurder låsing. |
 | [protocol.go](../cmd/client/protocol.go) | Lager HTTP-forespørsler og kontrollerer serversvar. |
 | [state.go](../cmd/client/state.go) | Holder lokal resttid, siste serverbeslutning og ventende rapport; leser og skriver tilstandsfilen. |
@@ -42,10 +71,12 @@ Nederst i `runtime.go` ligger metodene for valgfri programsporing. De endrer ikk
 
 ## Status for oppryddingen
 
-Dette er første avgrensede del av steg 3. Den store funksjonen med lokale hjelpefunksjoner er delt i navngitte metoder. Hendelsesløkken viser nå hovedflyten, og detaljene kan leses én metode om gangen. Testene fra steg 2 er beholdt uten endringer.
+To avgrensede deler av steg 3 er gjennomført. Først ble den store løkkefunksjonen delt i navngitte metoder. Deretter ble lesing av argumenter, sammensetting av konfigurasjon og valg av låsemodus flyttet fra `main` til `config.go`. Hovedprogrammet viser nå oppstartsrekkefølgen, og hendelsesløkken viser kjørerekkefølgen. Testene fra steg 2 er beholdt uten endringer.
 
 Dette er en strukturendring. Oppførselen og de kjente avvikene i [steg 2-rapporten](STEP_2.md) er fortsatt testgrunnlaget. Eksempelvis åpner `handleHeartbeatError` fortsatt tilgangen ved vanlige kontaktfeil; rettingen av dette skal følge de [vedtatte reglene](BEHAVIOR_RULES.md) i en egen endring.
 
-Kontrollert med `go test ./cmd/client`, `go test -race ./...`, `go vet ./...` og Windows-bygg til `.artifacts/screengate-client-step3.exe`. Programmet er ikke installert eller startet gjennom dette arbeidet.
+Innstillingskildenes prioritet og valget av testmodus/låsemodus kontrolleres også i `config_test.go`, med vanlige filer og kommandolinjeargumenter. Testene simulerer ingen Windows-låsing.
 
-Videre opprydding av konfigurasjon, tilstandslagring og serverens overvåkingskode er ikke utført i denne delen.
+Kontrollert med `go test ./cmd/client`, `go test -race ./...`, `go vet ./...` og Windows-bygg til `.artifacts/screengate-client-step3-config.exe`. Programmet er ikke installert eller startet gjennom dette arbeidet.
+
+Videre opprydding av tilstandslagring og serverens overvåkingskode er ikke utført i disse delene.
