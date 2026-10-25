@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// These are the existing loop's operating-system, clock, network and storage
-// boundaries. Production and characterization tests run the same event loop.
+// The functions and timers supplied by Windows startup. Tests supply substitutes
+// so they can run the same loop without locking a real Windows session.
 type clientRuntime struct {
 	now           func() time.Time
 	pollTicks     <-chan time.Time
@@ -24,8 +24,124 @@ type clientRuntime struct {
 	trackApps     bool
 }
 
-func newFocusEvent(deviceID, username, app string, activeSeconds int, timestamp time.Time) focusEvent {
-	return focusEvent{Type: "focus_changed", DeviceID: deviceID, User: username, PreviousApp: app, ActiveSeconds: activeSeconds, Timestamp: timestamp}
+// Only the event loop changes these fields. Network workers return results
+// through channels; they never update quota, session state or enforcement.
+type clientLoop struct {
+	ctx     context.Context
+	config  clientConfig
+	runtime clientRuntime
+	state   clientState
+	guard   enforcement
+
+	sessionState string
+	lastPoll     time.Time
+	meter        activityMeter
+	warnings     warningState
+	lastStatus   string
+
+	heartbeatInFlight bool
+	heartbeatResults  chan heartbeatResult
+
+	// Optional foreground-app reports are independent of quota accounting.
+	tracker       focusTracker
+	pendingEvents []focusEvent
+	eventInFlight bool
+	eventResults  chan error
+}
+
+func runClient(ctx context.Context, config clientConfig, state clientState, guard enforcement, runtime clientRuntime) {
+	client := clientLoop{
+		ctx: ctx, config: config, runtime: runtime, state: state, guard: guard,
+		heartbeatResults: make(chan heartbeatResult, 1),
+		eventResults:     make(chan error, 1),
+	}
+	client.persist()
+	client.lastPoll = runtime.now()
+	client.sessionState = runtime.sessionState(runtime.idleTimeout)
+	client.meter.update(client.sessionState != "locked", runtime.now())
+	client.sendHeartbeat()
+
+	for {
+		select {
+		case <-ctx.Done():
+			client.stop()
+			return
+		case <-runtime.pollTicks:
+			client.poll(runtime.now())
+		case <-runtime.reportTicks:
+			client.report()
+		case result := <-client.heartbeatResults:
+			client.handleHeartbeat(result)
+		case err := <-client.eventResults:
+			client.handleEvent(err)
+		}
+	}
+}
+
+// poll observes the session, accounts local use and checks access in that order.
+func (c *clientLoop) poll(now time.Time) {
+	if now.Sub(c.lastPoll) > 5*time.Second || now.Before(c.lastPoll) {
+		c.flushFocus(c.lastPoll)
+	}
+	c.lastPoll = now
+
+	currentState := c.runtime.sessionState(c.runtime.idleTimeout)
+	seconds := c.meter.update(currentState != "locked", now)
+	c.state.account(seconds, now)
+
+	if currentState != "active" {
+		c.flushFocus(now)
+	} else if c.runtime.trackApps {
+		if app, err := c.runtime.foregroundApp(); err == nil {
+			if previousApp, activeSeconds, changed := c.tracker.observe(app, now); changed {
+				c.queueEvent(previousApp, activeSeconds, now)
+			}
+		}
+	}
+
+	if currentState != c.sessionState {
+		log.Printf("session_state=%s", currentState)
+		c.sessionState = currentState
+		c.sendHeartbeat()
+	}
+	c.persist()
+
+	if warning, _ := c.warnings.observe(c.state.PolicyVersion, c.state.warningRemaining(now)); warning != nil && c.state.Action == "allow" && c.sessionState == "active" {
+		if err := c.runtime.showWarning(*warning); err != nil {
+			log.Printf("warning error: %v", err)
+		}
+	}
+	c.enforce(now)
+}
+
+func (c *clientLoop) report() {
+	if app, seconds, ok := c.tracker.checkpoint(c.runtime.now()); ok {
+		c.queueEvent(app, seconds, c.runtime.now())
+	}
+	c.sendHeartbeat()
+	c.sendEvent()
+}
+
+func (c *clientLoop) stop() {
+	now := c.runtime.now()
+	c.state.account(c.meter.update(false, now), now)
+	c.persist()
+}
+
+func (c *clientLoop) persist() bool {
+	if err := c.runtime.save(c.state); err != nil {
+		c.state.invalidate("state_unavailable")
+		log.Printf("cannot persist authorization: %v", err)
+		return false
+	}
+	return true
+}
+
+func (c *clientLoop) enforce(now time.Time) {
+	blocked := !c.state.allowed(now) && c.sessionState != "locked"
+	c.guard.poll(blocked, now, c.runtime.lock, func() {
+		log.Printf("test_mode=true would_lock=true action=%s reason=%s remaining_seconds=%d", c.state.Action, c.state.Reason, c.state.RemainingSeconds)
+	})
 }
 
 type heartbeatResult struct {
@@ -35,182 +151,125 @@ type heartbeatResult struct {
 	err          error
 }
 
-func runClient(ctx context.Context, config clientConfig, state clientState, guard enforcement, runtime clientRuntime) {
-	persist := func() bool {
-		if err := runtime.save(state); err != nil {
-			state.invalidate("state_unavailable")
-			log.Printf("cannot persist authorization: %v", err)
-			return false
-		}
-		return true
+// Save the report before sending. A network worker cannot block local checks.
+func (c *clientLoop) sendHeartbeat() {
+	if c.heartbeatInFlight {
+		return
 	}
-	persist()
-	client := runtime.httpClient
-	eventEndpoint := strings.TrimSuffix(config.Server, "/heartbeat") + "/event"
-	results := make(chan heartbeatResult, 1)
-	eventResults := make(chan error, 1)
-	heartbeatInFlight, eventInFlight := false, false
-	sessionState := "locked"
-	warnings := warningState{}
-	tracker := focusTracker{}
-	meter := activityMeter{}
-	var pendingEvents []focusEvent
-	lastStatus := ""
-	lastPoll := runtime.now()
-
-	queueEvent := func(app string, seconds int, now time.Time) {
-		if app == "" || seconds <= 0 || !runtime.trackApps {
-			return
-		}
-		if len(pendingEvents) >= 256 {
-			return
-		}
-		pendingEvents = append(pendingEvents, newFocusEvent(config.DeviceID, config.User, app, min(seconds, 86400), now))
+	now := c.runtime.now()
+	report, err := c.state.prepareReport(c.config.DeviceID, c.config.User, c.sessionState, now)
+	if err != nil {
+		c.state.invalidate("report_unavailable")
+		log.Printf("report error: %v", err)
+		return
 	}
-	flushFocus := func(now time.Time) {
-		if app, seconds, ok := tracker.finish(now); ok {
-			queueEvent(app, seconds, now)
-		}
+	if !c.persist() {
+		return
 	}
-	sendEvent := func() {
-		if eventInFlight || len(pendingEvents) == 0 {
-			return
-		}
-		eventInFlight = true
-		event := pendingEvents[0]
-		go func() {
-			err := postEvent(ctx, client, eventEndpoint, config.Token, event)
-			select {
-			case eventResults <- err:
-			case <-ctx.Done():
-			}
-		}()
-	}
-	sendHeartbeat := func() {
-		if heartbeatInFlight {
-			return
-		}
-		now := runtime.now()
-		report, err := state.prepareReport(config.DeviceID, config.User, sessionState, now)
-		if err != nil {
-			state.invalidate("report_unavailable")
-			log.Printf("report error: %v", err)
-			return
-		}
-		if !persist() {
-			return
-		}
-		heartbeatInFlight = true
-		go func() {
-			result, err := postHeartbeat(ctx, client, config.Server, config.Token, report)
-			select {
-			case results <- heartbeatResult{response: result, sentAt: now, err: err, sessionState: report.SessionState}:
-			case <-ctx.Done():
-			}
-		}()
-	}
-	enforce := func(now time.Time) {
-		guard.poll(!state.allowed(now) && sessionState != "locked", now, runtime.lock, func() {
-			log.Printf("test_mode=true would_lock=true action=%s reason=%s remaining_seconds=%d", state.Action, state.Reason, state.RemainingSeconds)
-		})
-	}
-	poll := func(now time.Time) {
-		if now.Sub(lastPoll) > 5*time.Second || now.Before(lastPoll) {
-			flushFocus(lastPoll)
-		}
-		lastPoll = now
-		currentState := runtime.sessionState(runtime.idleTimeout)
-		seconds := meter.update(currentState != "locked", now)
-		state.account(seconds, now)
-		if currentState != "active" {
-			flushFocus(now)
-		} else if runtime.trackApps {
-			if app, err := runtime.foregroundApp(); err == nil {
-				if previousApp, activeSeconds, changed := tracker.observe(app, now); changed {
-					queueEvent(previousApp, activeSeconds, now)
-				}
-			}
-		}
-		if currentState != sessionState {
-			log.Printf("session_state=%s", currentState)
-			sessionState = currentState
-			sendHeartbeat()
-		}
-		persist()
-		if warning, _ := warnings.observe(state.PolicyVersion, state.warningRemaining(now)); warning != nil && state.Action == "allow" && sessionState == "active" {
-			if err := runtime.showWarning(*warning); err != nil {
-				log.Printf("warning error: %v", err)
-			}
-		}
-		enforce(now)
-	}
-	// Network operations run separately so a stalled connection cannot stop
-	// local enforcement. The first heartbeat establishes server-side presence.
-	sessionState = runtime.sessionState(runtime.idleTimeout)
-	meter.update(sessionState != "locked", runtime.now())
-	sendHeartbeat()
-	for {
+	c.heartbeatInFlight = true
+	go func() {
+		result, err := postHeartbeat(c.ctx, c.runtime.httpClient, c.config.Server, c.config.Token, report)
 		select {
-		case <-ctx.Done():
-			now := runtime.now()
-			state.account(meter.update(false, now), now)
-			persist()
-			return
-		case <-runtime.pollTicks:
-			poll(runtime.now())
-		case <-runtime.reportTicks:
-			if app, seconds, ok := tracker.checkpoint(runtime.now()); ok {
-				queueEvent(app, seconds, runtime.now())
-			}
-			sendHeartbeat()
-			sendEvent()
-		case err := <-eventResults:
-			eventInFlight = false
-			if err == nil && len(pendingEvents) > 0 {
-				pendingEvents = pendingEvents[1:]
-				sendEvent()
-			}
-		case result := <-results:
-			heartbeatInFlight = false
-			now := runtime.now()
-			if result.err != nil {
-				if authenticationFailed(result.err) {
-					state.invalidate("authentication_failed")
-				} else {
-					// No usable server decision is available. Fail open so a
-					// startup/network outage cannot lock the user out.
-					state.markServerUnavailable()
-				}
-				if lastStatus != "unreachable" {
-					log.Printf("server unavailable: %v", result.err)
-					lastStatus = "unreachable"
-				}
-			} else {
-				if !guard.enabled {
-					log.Printf("test_mode=true heartbeat_ok=true")
-				}
-				if state.PolicyDate != result.response.PolicyDate {
-					warnings = warningState{}
-				}
-				state.apply(result.response, result.sentAt, now)
-				status := state.Action + ":" + state.Reason
-				if status != lastStatus {
-					log.Printf("server_action=%s reason=%s remaining_seconds=%d", state.Action, state.Reason, state.RemainingSeconds)
-					lastStatus = status
-				}
-				if warning, changed := warnings.observe(state.PolicyVersion, state.warningRemaining(now)); warning != nil && state.Action == "allow" && sessionState == "active" {
-					if err := runtime.showWarning(*warning); err != nil {
-						log.Printf("warning error: %v", err)
-					}
-				} else if changed {
-					log.Printf("policy_version=%d changed=true", state.PolicyVersion)
-				}
-			}
-			persist()
-			enforce(now)
-			if result.sessionState != sessionState {
-				sendHeartbeat()
-			}
+		case c.heartbeatResults <- heartbeatResult{response: result, sentAt: now, err: err, sessionState: report.SessionState}:
+		case <-c.ctx.Done():
 		}
+	}()
+}
+
+func (c *clientLoop) handleHeartbeat(result heartbeatResult) {
+	c.heartbeatInFlight = false
+	now := c.runtime.now()
+	if result.err != nil {
+		c.handleHeartbeatError(result.err)
+	} else {
+		c.applyServerResponse(result, now)
+	}
+	c.persist()
+	c.enforce(now)
+
+	if result.sessionState != c.sessionState {
+		c.sendHeartbeat()
+	}
+}
+
+func (c *clientLoop) handleHeartbeatError(err error) {
+	if authenticationFailed(err) {
+		c.state.invalidate("authentication_failed")
+	} else {
+		// Existing behavior, characterized in runtime_test.go: contact failure
+		// opens access. Changing this belongs to the later rule implementation.
+		c.state.markServerUnavailable()
+	}
+	if c.lastStatus != "unreachable" {
+		log.Printf("server unavailable: %v", err)
+		c.lastStatus = "unreachable"
+	}
+}
+
+func (c *clientLoop) applyServerResponse(result heartbeatResult, now time.Time) {
+	if !c.guard.enabled {
+		log.Printf("test_mode=true heartbeat_ok=true")
+	}
+	if c.state.PolicyDate != result.response.PolicyDate {
+		c.warnings = warningState{}
+	}
+	c.state.apply(result.response, result.sentAt, now)
+
+	status := c.state.Action + ":" + c.state.Reason
+	if status != c.lastStatus {
+		log.Printf("server_action=%s reason=%s remaining_seconds=%d", c.state.Action, c.state.Reason, c.state.RemainingSeconds)
+		c.lastStatus = status
+	}
+	if warning, changed := c.warnings.observe(c.state.PolicyVersion, c.state.warningRemaining(now)); warning != nil && c.state.Action == "allow" && c.sessionState == "active" {
+		if err := c.runtime.showWarning(*warning); err != nil {
+			log.Printf("warning error: %v", err)
+		}
+	} else if changed {
+		log.Printf("policy_version=%d changed=true", c.state.PolicyVersion)
+	}
+}
+
+// The remaining methods handle optional app tracking. They do not change quota.
+func newFocusEvent(deviceID, username, app string, activeSeconds int, timestamp time.Time) focusEvent {
+	return focusEvent{Type: "focus_changed", DeviceID: deviceID, User: username, PreviousApp: app, ActiveSeconds: activeSeconds, Timestamp: timestamp}
+}
+
+func (c *clientLoop) queueEvent(app string, seconds int, now time.Time) {
+	if app == "" || seconds <= 0 || !c.runtime.trackApps {
+		return
+	}
+	if len(c.pendingEvents) >= 256 {
+		return
+	}
+	c.pendingEvents = append(c.pendingEvents, newFocusEvent(c.config.DeviceID, c.config.User, app, min(seconds, 86400), now))
+}
+
+func (c *clientLoop) flushFocus(now time.Time) {
+	if app, seconds, ok := c.tracker.finish(now); ok {
+		c.queueEvent(app, seconds, now)
+	}
+}
+
+func (c *clientLoop) sendEvent() {
+	if c.eventInFlight || len(c.pendingEvents) == 0 {
+		return
+	}
+	c.eventInFlight = true
+	event := c.pendingEvents[0]
+	endpoint := strings.TrimSuffix(c.config.Server, "/heartbeat") + "/event"
+	go func() {
+		err := postEvent(c.ctx, c.runtime.httpClient, endpoint, c.config.Token, event)
+		select {
+		case c.eventResults <- err:
+		case <-c.ctx.Done():
+		}
+	}()
+}
+
+func (c *clientLoop) handleEvent(err error) {
+	c.eventInFlight = false
+	if err == nil && len(c.pendingEvents) > 0 {
+		c.pendingEvents = c.pendingEvents[1:]
+		c.sendEvent()
 	}
 }

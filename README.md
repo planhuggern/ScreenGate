@@ -128,6 +128,8 @@ Sterkere manipulasjonsvern krever en separat Windows-tjeneste og kontopolicyer. 
 
 ## Lokal utvikling
 
+For å følge klientkoden, start med [Slik leser du Windows-klienten](docs/CLIENT_FLOW.md). Den beskriver hovedløpet og hvilke filer som har ansvar for rapportering, telling, lagring og låsing.
+
 Go 1.25 eller nyere:
 
 ```powershell

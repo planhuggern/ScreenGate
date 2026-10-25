@@ -49,4 +49,4 @@ Testbygget er ikke installert eller startet. Klientversjon og utrulling er ikke 
 
 Steg 3 er videre opprydding av ansvar, med disse testene som grunnlag. Kjente feil skal ikke rettes tilfeldig under flytting av kode. Når en vedtatt regel implementeres senere, skal testen som beskriver det gamle avviket endres til å kontrollere den nye oppførselen, sammen med dokumentasjonen.
 
-Steg 3 er ikke startet gjennom denne oppgaven.
+Første avgrensede del av steg 3 er senere gjennomført: [Slik leser du Windows-klienten](CLIENT_FLOW.md) beskriver den oppdelte klientløkken. Testene fra steg 2 er beholdt uten endringer; videre opprydding og innføring av nye regler gjenstår.
