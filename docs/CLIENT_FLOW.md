@@ -40,6 +40,24 @@ Når innstillinger oppgis flere steder, beholdes den eksisterende rekkefølgen:
 
 Låsing er aktivert hvis installasjonsfilen eller `-enable-locking` ber om det. `-test-mode` overstyrer begge og hindrer Windows-låsing. Uten aktivering av låsing brukes testmodus. Innstillingene for programsporing og inaktivitet sendes videre til løkken som før.
 
+## Tilstanden mellom kjøringer
+
+[state.go](../cmd/client/state.go) beskriver hva klienten husker og hvordan verdiene endres ved lokal bruk og serversvar. [state_store.go](../cmd/client/state_store.go) håndterer lesing, kontroll og skriving av filen. Du kan dermed lese tilgangsreglene uten samtidig å følge filoperasjoner og signering.
+
+Ved oppstart følger `loadState` denne rekkefølgen:
+
+1. Åpne filen. En manglende fil gir dagens starttilstand for en ny klient.
+2. Kontroller filstørrelsen.
+3. Les JSON og kontroller signaturen med `readSignedState`.
+4. Kontroller identitet og tillatte verdier med `validateSavedState`.
+5. Gjenopprett kompatibilitetsfelt og kontroller klokken med `restoreAfterLoad` i `state.go`.
+
+En ødelagt eller ugyldig fil returnerer dagens stengte reservetilstand og en feil. Dette er forskjellig fra en fil som ikke finnes. Den videre behandlingen av denne tilstanden i klientløkken er fortsatt beskrevet av testene fra steg 2.
+
+`saveState` skriver tilstanden som JSON med en signatur. Den skriver først en midlertidig fil, synkroniserer og lukker den, og erstatter deretter tilstandsfilen. Filnavn, JSON-felt, signering og denne skriverekkefølgen er beholdt.
+
+Kompatibilitetstesten i `state_store_test.go` leser en fast eksempel-fil fra før feltet `server_contacted` ble innført. Den kontrollerer at resttid, utløp og ventende rapport bevares. Eksisterende tester kontrollerer blant annet omstart, feil nøkkel, endrede data og den kjente forskjellen i håndheving før og etter omstart under nettbrudd.
+
 ## Eksempel: barnet låser opp Windows
 
 1. `poll` leser den nye Windows-statusen.
@@ -59,7 +77,8 @@ Hvis en rapport allerede venter på svar, starter ikke `sendHeartbeat` enda en p
 | [config.go](../cmd/client/config.go) | Leser eksisterende argumenter og konfigurasjonsfil, bestemmer hvilken innstillingskilde som gjelder og kontrollerer resultatet. |
 | [runtime.go](../cmd/client/runtime.go) | Bestemmer rekkefølgen: les status, mål bruk, send rapporter, håndter svar, lagre og vurder låsing. |
 | [protocol.go](../cmd/client/protocol.go) | Lager HTTP-forespørsler og kontrollerer serversvar. |
-| [state.go](../cmd/client/state.go) | Holder lokal resttid, siste serverbeslutning og ventende rapport; leser og skriver tilstandsfilen. |
+| [state.go](../cmd/client/state.go) | Holder lokal resttid, siste serverbeslutning og ventende rapport, og bestemmer hvordan de endres. |
+| [state_store.go](../cmd/client/state_store.go) | Leser, kontrollerer, signerer og skriver tilstandsfilen i eksisterende format. |
 | [activity.go](../cmd/client/activity.go) | Måler lokale sekunder mellom sjekkene. |
 | [session_windows.go](../cmd/client/session_windows.go) | Leser Windows-økten gjennom Windows-API-er. |
 | [enforcement.go](../cmd/client/enforcement.go) | Utfører låseforsøk eller registrerer at den ville ha låst i testmodus. |
@@ -71,12 +90,12 @@ Nederst i `runtime.go` ligger metodene for valgfri programsporing. De endrer ikk
 
 ## Status for oppryddingen
 
-To avgrensede deler av steg 3 er gjennomført. Først ble den store løkkefunksjonen delt i navngitte metoder. Deretter ble lesing av argumenter, sammensetting av konfigurasjon og valg av låsemodus flyttet fra `main` til `config.go`. Hovedprogrammet viser nå oppstartsrekkefølgen, og hendelsesløkken viser kjørerekkefølgen. Testene fra steg 2 er beholdt uten endringer.
+Tre avgrensede deler av steg 3 er gjennomført. Først ble den store løkkefunksjonen delt i navngitte metoder. Deretter ble oppstartsinnstillingene samlet i `config.go`. Til slutt ble lesing, kontroll og skriving av tilstandsfilen skilt ut i `state_store.go`, mens tilstandsreglene ble igjen i `state.go`. Hovedprogrammet viser oppstartsrekkefølgen, og hendelsesløkken viser kjørerekkefølgen. Testene fra steg 2 er beholdt uten endringer.
 
 Dette er en strukturendring. Oppførselen og de kjente avvikene i [steg 2-rapporten](STEP_2.md) er fortsatt testgrunnlaget. Eksempelvis åpner `handleHeartbeatError` fortsatt tilgangen ved vanlige kontaktfeil; rettingen av dette skal følge de [vedtatte reglene](BEHAVIOR_RULES.md) i en egen endring.
 
 Innstillingskildenes prioritet og valget av testmodus/låsemodus kontrolleres også i `config_test.go`, med vanlige filer og kommandolinjeargumenter. Testene simulerer ingen Windows-låsing.
 
-Kontrollert med `go test ./cmd/client`, `go test -race ./...`, `go vet ./...` og Windows-bygg til `.artifacts/screengate-client-step3-config.exe`. Programmet er ikke installert eller startet gjennom dette arbeidet.
+Kontrollert med `go test ./cmd/client`, `go test -race ./...`, `go vet ./...` og Windows-bygg til `.artifacts/screengate-client-step3-state.exe`. Programmet er ikke installert eller startet gjennom dette arbeidet.
 
-Videre opprydding av tilstandslagring og serverens overvåkingskode er ikke utført i disse delene.
+Videre opprydding av serverens overvåkingskode er ikke utført i disse delene. Nye tilgangsregler og offline-avstemming er heller ikke innført gjennom denne strukturendringen.

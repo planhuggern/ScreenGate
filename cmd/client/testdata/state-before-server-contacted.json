@@ -1,0 +1,4 @@
+{
+  "state": {"identity":"legacy-client","action":"allow","reason":"allowed","policy_version":2,"policy_date":"2026-09-18","quota_seconds":600,"remaining_seconds":30,"lease_expires_at":"2026-09-18T14:01:00Z","scheduled_lock_at":"0001-01-01T00:00:00Z","updated_at":"2026-09-18T14:00:00Z","pending_seconds":4,"pending_date":"2026-09-18","report":{"device_id":"pc","user":"child","heartbeat_id":"pending-report","session_state":"active","active_seconds":25,"reported_at":"2026-09-18T14:00:00Z","activity_date":"2026-09-18"}},
+  "mac": "d9f312217ef88b93c1b557f5eaca1601b78126e2ff7d5d9a0a255cebd4059257"
+}

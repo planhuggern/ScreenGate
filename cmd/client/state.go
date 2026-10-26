@@ -1,15 +1,8 @@
 package main
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -35,16 +28,6 @@ type clientState struct {
 	PendingSeconds   int        `json:"pending_seconds"`
 	PendingDate      string     `json:"pending_date,omitempty"`
 	Report           *heartbeat `json:"report,omitempty"`
-}
-
-type stateEnvelope struct {
-	State json.RawMessage `json:"state"`
-	MAC   string          `json:"mac"`
-}
-
-func stateIdentity(endpoint, deviceID, username string) string {
-	digest := sha256.Sum256([]byte(endpoint + "\x00" + deviceID + "\x00" + username))
-	return hex.EncodeToString(digest[:])
 }
 
 func (s *clientState) allowed(now time.Time) bool {
@@ -152,91 +135,14 @@ func (s *clientState) apply(result response, sentAt, receivedAt time.Time) {
 	}
 }
 
-func stateMAC(data []byte, token string) string {
-	mac := hmac.New(sha256.New, []byte(token))
-	mac.Write(data)
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-func loadState(path, identity, token string, now time.Time) (clientState, error) {
-	initial := clientState{Identity: identity, Action: "lock", Reason: "awaiting_server", UpdatedAt: now}
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return initial, nil
-	}
-	if err != nil {
-		// A state file that exists but cannot be authenticated or read is not
-		// equivalent to a fresh install. Keep this fail-closed.
-		initial.ServerContacted = true
-		return initial, err
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || info.Size() > 64*1024 {
-		initial.ServerContacted = true
-		return initial, errors.New("invalid state file size")
-	}
-	var envelope stateEnvelope
-	if err := json.NewDecoder(file).Decode(&envelope); err != nil {
-		initial.ServerContacted = true
-		return initial, fmt.Errorf("invalid state: %w", err)
-	}
-	if !hmac.Equal([]byte(envelope.MAC), []byte(stateMAC(envelope.State, token))) {
-		initial.ServerContacted = true
-		return initial, errors.New("saved state authentication failed")
-	}
-	var state clientState
-	if err := json.Unmarshal(envelope.State, &state); err != nil {
-		initial.ServerContacted = true
-		return initial, err
-	}
-	if state.Identity != identity || state.PendingSeconds < 0 || state.PendingSeconds > 86400 || state.RemainingSeconds < 0 || state.QuotaSeconds < 0 || (state.Action != "allow" && state.Action != "lock") {
-		initial.ServerContacted = true
-		return initial, errors.New("saved state does not match this client")
-	}
-	if state.Report != nil && (state.Report.HeartbeatID == "" || state.Report.ActiveSeconds < 0 || state.Report.ActiveSeconds > 86400) {
-		initial.ServerContacted = true
-		return initial, errors.New("invalid pending report")
-	}
+// restoreAfterLoad keeps the existing compatibility and clock checks. It does
+// not grant a new lease or refill quota when the client restarts.
+func (s *clientState) restoreAfterLoad(now time.Time) {
 	// Migrate state files written before ServerContacted existed. The old
 	// initial state was lock/awaiting_server with no lease; all other valid
 	// states represent a prior server decision.
-	if !state.ServerContacted {
-		state.ServerContacted = !(state.Action == "lock" && state.Reason == "awaiting_server" && state.LeaseExpiresAt.IsZero())
+	if !s.ServerContacted {
+		s.ServerContacted = !(s.Action == "lock" && s.Reason == "awaiting_server" && s.LeaseExpiresAt.IsZero())
 	}
-	state.allowed(now)
-	return state, nil
-}
-
-func saveState(path, token string, state clientState) error {
-	data, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	envelope, err := json.Marshal(stateEnvelope{State: data, MAC: stateMAC(data, token)})
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	file, err := os.CreateTemp(filepath.Dir(path), ".state-*")
-	if err != nil {
-		return err
-	}
-	temporary := file.Name()
-	defer os.Remove(temporary)
-	if err = file.Chmod(0600); err == nil {
-		_, err = file.Write(envelope)
-	}
-	if err == nil {
-		err = file.Sync()
-	}
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(temporary, path)
+	s.allowed(now)
 }
