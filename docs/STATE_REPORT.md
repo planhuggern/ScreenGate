@@ -116,7 +116,7 @@ Arbeidsdokument for steg 1: [Regler for telling og tilgang](BEHAVIOR_RULES.md). 
 
 ## Arbeidsregler for oppryddingen
 
-Senere status: Steg 3 er fullført gjennom avgrensede strukturendringer i [klienten](CLIENT_FLOW.md) og [overvåkingen](MONITOR_FLOW.md). Eksisterende oppførsel er bevart; innføring av vedtatte regler i steg 4 gjenstår. Rapportens opprinnelige beskrivelse av kodebasen ovenfor står som historisk grunnlag.
+Senere status: Steg 3 er fullført gjennom avgrensede strukturendringer i [klienten](CLIENT_FLOW.md) og [overvåkingen](MONITOR_FLOW.md). [Steg 4, del 1](STEP_4.md) har deretter innført videreføring av lokal restkvote og rettet tilhørende feiloverganger. Full avstemming og de øvrige reglene gjenstår. Rapportens opprinnelige beskrivelse av kodebasen ovenfor står som historisk grunnlag.
 
 - Én kilde beskriver produktreglene; API, drift og README viser til den og må holdes i samsvar.
 - Skill rene strukturendringer fra endret oppførsel. Beskriv konkrete før/etter-eksempler ved regelendringer.

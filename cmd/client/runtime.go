@@ -194,10 +194,11 @@ func (c *clientLoop) handleHeartbeat(result heartbeatResult) {
 
 func (c *clientLoop) handleHeartbeatError(err error) {
 	if authenticationFailed(err) {
+		c.state.ServerUnavailable = false
 		c.state.invalidate("authentication_failed")
 	} else {
-		// Existing behavior, characterized in runtime_test.go: contact failure
-		// opens access. Changing this belongs to the later rule implementation.
+		// Keep the last decision. Local quota and the known closing time still
+		// apply while the server cannot supply an update.
 		c.state.markServerUnavailable()
 	}
 	if c.lastStatus != "unreachable" {

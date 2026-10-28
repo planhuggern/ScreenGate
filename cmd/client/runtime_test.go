@@ -14,9 +14,8 @@ import (
 	"time"
 )
 
-// These tests characterize the current production loop, including known bugs.
-// Desired changes belong to docs/BEHAVIOR_RULES.md and must update these tests
-// explicitly when those changes are implemented.
+// These tests cover the production loop. TestLoop checks implemented rules;
+// TestCurrentLoop still characterizes known deviations from BEHAVIOR_RULES.md.
 type loopReply struct {
 	status int
 	body   string
@@ -196,7 +195,7 @@ func establishedState(action string) clientState {
 	return state
 }
 
-func TestCurrentLoopContactFailures(t *testing.T) {
+func TestLoopContactFailuresPreserveLastDecision(t *testing.T) {
 	for _, initial := range []string{"fresh", "allow", "lock"} {
 		for _, failure := range []struct {
 			name  string
@@ -216,13 +215,16 @@ func TestCurrentLoopContactFailures(t *testing.T) {
 				}
 				h := startTestClient(t, state, testMoment(), "", true)
 				h.request().reply <- failure.reply
-				reason := "server_unavailable"
-				if failure.auth {
-					reason = "authentication_failed"
+				got := h.await(func(s clientState) bool {
+					if failure.auth {
+						return s.Reason == "authentication_failed"
+					}
+					return s.ServerUnavailable
+				})
+				if got.ServerUnavailable != !failure.auth {
+					t.Fatal("connection status was confused with the last decision")
 				}
-				got := h.await(func(s clientState) bool { return s.Reason == reason })
-				// Current bug: invalidation on a fresh client still fails open.
-				wantBlocked := failure.auth && initial != "fresh"
+				wantBlocked := failure.auth || initial != "allow"
 				if got.allowed(h.time()) == wantBlocked || (h.locks.Load() > 0) != wantBlocked {
 					t.Fatalf("state=%+v locks=%d wantBlocked=%t", got, h.locks.Load(), wantBlocked)
 				}
@@ -231,31 +233,31 @@ func TestCurrentLoopContactFailures(t *testing.T) {
 	}
 }
 
-func TestCurrentLoopAuthenticationFailureAfterOutageStillAllows(t *testing.T) {
+func TestLoopAuthenticationFailureAfterOutageLocks(t *testing.T) {
 	h := startTestClient(t, establishedState("lock"), testMoment(), "", true)
 	h.request().reply <- loopReply{status: 503, body: `{}`}
-	h.await(func(s clientState) bool { return s.Reason == "server_unavailable" })
+	h.await(func(s clientState) bool { return s.ServerUnavailable })
 	h.send(h.reports)
 	h.request().reply <- loopReply{status: 401, body: `{}`}
 	state := h.await(func(s clientState) bool { return s.Reason == "authentication_failed" })
-	if state.Action != "lock" || !state.allowed(h.time()) || h.locks.Load() != 0 {
-		t.Fatalf("expected current bypass after outage, state=%+v locks=%d", state, h.locks.Load())
+	if state.Action != "lock" || state.allowed(h.time()) || h.locks.Load() == 0 {
+		t.Fatalf("authentication failure must remain closed after outage, state=%+v locks=%d", state, h.locks.Load())
 	}
 }
 
-func TestCurrentLoopOfflineExhaustionDoesNotLock(t *testing.T) {
+func TestLoopOfflineExhaustionLocks(t *testing.T) {
 	h := startTestClient(t, clientState{}, testMoment(), "", true)
 	h.request().reply <- allowReply(3)
 	h.await(func(s clientState) bool { return s.ServerContacted && s.Report == nil })
 	h.send(h.reports)
 	h.request().reply <- loopReply{status: 503, body: `{}`}
-	h.await(func(s clientState) bool { return s.Reason == "server_unavailable" })
+	h.await(func(s clientState) bool { return s.ServerUnavailable })
 	var state clientState
 	for i := 0; i < 4; i++ {
 		state = h.poll(time.Second)
 	}
-	if state.RemainingSeconds != 0 || !state.allowed(h.time()) || h.locks.Load() != 0 {
-		t.Fatalf("expected current free use after exhaustion, state=%+v locks=%d", state, h.locks.Load())
+	if state.RemainingSeconds != 0 || state.allowed(h.time()) || h.locks.Load() == 0 {
+		t.Fatalf("exhausted local quota must lock, state=%+v locks=%d", state, h.locks.Load())
 	}
 }
 
@@ -269,7 +271,7 @@ func TestCurrentLoopReconnectCanReturnLocallyUsedTime(t *testing.T) {
 	h.send(h.reports)
 	failed := h.request()
 	failed.reply <- loopReply{status: 503, body: `{}`}
-	h.await(func(s clientState) bool { return s.Reason == "server_unavailable" })
+	h.await(func(s clientState) bool { return s.ServerUnavailable })
 	var before clientState
 	for i := 0; i < 5; i++ {
 		before = h.poll(time.Second)
@@ -286,29 +288,25 @@ func TestCurrentLoopReconnectCanReturnLocallyUsedTime(t *testing.T) {
 	}
 }
 
-func TestCurrentLoopRestartChangesOutageEnforcement(t *testing.T) {
+func TestLoopRestartPreservesOfflineQuotaAndAccess(t *testing.T) {
 	h := startTestClient(t, establishedState("allow"), testMoment(), "", true)
 	h.request().reply <- loopReply{status: 503, body: `{}`}
-	h.await(func(s clientState) bool { return s.Reason == "server_unavailable" })
+	h.await(func(s clientState) bool { return s.ServerUnavailable })
 	h.poll(time.Second)
 	h.stop()
-	state, err := loadState(h.path, "test-client", "test-secret", h.time())
+	restartAt := h.time().Add(time.Hour)
+	state, err := loadState(h.path, "test-client", "test-secret", restartAt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.RemainingSeconds != 99 || !state.ServerContacted || state.allowed(h.time()) {
+	if state.RemainingSeconds != 99 || !state.ServerContacted || !state.allowed(restartAt) || !state.ServerUnavailable {
 		t.Fatalf("unexpected restored outage state: %+v", state)
 	}
-	restarted := startTestClient(t, state, h.time(), h.path, true)
-	request := restarted.request() // Keep the startup request pending.
-	restarted.poll(time.Second)
-	if restarted.locks.Load() != 1 {
-		t.Fatalf("saved outage should currently lock while request is pending, locks=%d", restarted.locks.Load())
-	}
-	request.reply <- loopReply{status: 503, body: `{}`}
-	after := restarted.await(func(s clientState) bool { return !s.ServerContacted && s.Reason == "server_unavailable" })
-	if !after.allowed(restarted.time()) || after.RemainingSeconds != 98 {
-		t.Fatalf("contact failure should reopen without refilling quota: %+v", after)
+	restarted := startTestClient(t, state, restartAt, h.path, true)
+	restarted.request() // Keep the startup request pending.
+	after := restarted.poll(time.Second)
+	if restarted.locks.Load() != 0 || !after.allowed(restarted.time()) || after.RemainingSeconds != 98 {
+		t.Fatalf("restart must preserve access and consumed quota: state=%+v locks=%d", after, restarted.locks.Load())
 	}
 }
 
@@ -398,7 +396,7 @@ func TestCurrentLoopCountingWarningsAndSuspension(t *testing.T) {
 	}
 	h.session.Store("active")
 	state = h.poll(time.Hour) // A suspended process must not bill the gap.
-	if state.RemainingSeconds != 59 || h.locks.Load() != 1 {
-		t.Fatalf("current lease expires over sleep without billing the gap: remaining=%d locks=%d", state.RemainingSeconds, h.locks.Load())
+	if state.RemainingSeconds != 59 || h.locks.Load() != 0 {
+		t.Fatalf("sleep must preserve rest quota without billing the gap: remaining=%d locks=%d", state.RemainingSeconds, h.locks.Load())
 	}
 }

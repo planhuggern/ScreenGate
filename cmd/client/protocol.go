@@ -14,7 +14,7 @@ import (
 )
 
 // Bump for each client release, including fixes distributed by the updater.
-const clientVersion = "2026.10.19.1"
+const clientVersion = "2026.10.28.1"
 
 type heartbeat struct {
 	DeviceID      string    `json:"device_id"`

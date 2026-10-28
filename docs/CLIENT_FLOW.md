@@ -92,7 +92,7 @@ Nederst i `runtime.go` ligger metodene for valgfri programsporing. De endrer ikk
 
 Tre avgrensede deler av steg 3 er gjennomført. Først ble den store løkkefunksjonen delt i navngitte metoder. Deretter ble oppstartsinnstillingene samlet i `config.go`. Til slutt ble lesing, kontroll og skriving av tilstandsfilen skilt ut i `state_store.go`, mens tilstandsreglene ble igjen i `state.go`. Hovedprogrammet viser oppstartsrekkefølgen, og hendelsesløkken viser kjørerekkefølgen. Testene fra steg 2 er beholdt uten endringer.
 
-Dette er en strukturendring. Oppførselen og de kjente avvikene i [steg 2-rapporten](STEP_2.md) er fortsatt testgrunnlaget. Eksempelvis åpner `handleHeartbeatError` fortsatt tilgangen ved vanlige kontaktfeil; rettingen av dette skal følge de [vedtatte reglene](BEHAVIOR_RULES.md) i en egen endring.
+Steg 3 var strukturendringer med testene fra [steg 2-rapporten](STEP_2.md) som grunnlag. Senere er første regelendring innført i [steg 4, del 1](STEP_4.md): `handleHeartbeatError` bevarer nå siste beslutning ved vanlige kontaktfeil, mens `allowed` håndhever lokal restkvote og kjent stengetid. `ServerUnavailable` holder kontaktfeil adskilt fra om en tidligere gyldig beslutning finnes. Testene for de rettede avvikene er oppdatert; resten av de [vedtatte reglene](BEHAVIOR_RULES.md) innføres videre i egne endringer.
 
 Innstillingskildenes prioritet og valget av testmodus/låsemodus kontrolleres også i `config_test.go`, med vanlige filer og kommandolinjeargumenter. Testene simulerer ingen Windows-låsing.
 

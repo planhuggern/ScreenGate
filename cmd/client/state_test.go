@@ -9,9 +9,9 @@ import (
 
 func testMoment() time.Time { return time.Date(2026, 9, 18, 14, 0, 0, 0, time.UTC) }
 
-func TestFreshClientAllowsUntilServerAuthorization(t *testing.T) {
+func TestFreshClientRequiresServerAuthorization(t *testing.T) {
 	state, err := loadState(filepath.Join(t.TempDir(), "missing.json"), "identity", "secret", testMoment())
-	if err != nil || !state.allowed(testMoment()) || state.ServerContacted {
+	if err != nil || state.allowed(testMoment()) || state.ServerContacted {
 		t.Fatalf("fresh state allowed=%v, contacted=%v, err=%v", state.allowed(testMoment()), state.ServerContacted, err)
 	}
 }
@@ -25,17 +25,22 @@ func TestExplicitServerLockIsStillEnforcedOffline(t *testing.T) {
 	}
 }
 
-func TestServerUnavailableFailsOpen(t *testing.T) {
+func TestServerUnavailablePreservesLastDecision(t *testing.T) {
 	now := testMoment()
 	state := clientState{}
 	state.apply(response{Action: "lock", Reason: "quota_exhausted", LeaseSeconds: 90}, now, now)
 	state.markServerUnavailable()
-	if !state.allowed(now.Add(time.Hour)) || state.Reason != "server_unavailable" {
-		t.Fatal("server outage did not fail open")
+	if state.allowed(now.Add(time.Hour)) || state.Reason != "quota_exhausted" || !state.ServerUnavailable {
+		t.Fatal("contact failure changed the last lock decision")
+	}
+	state.apply(response{Action: "allow", QuotaSeconds: 600, RemainingSeconds: 300, LeaseSeconds: 90}, now, now)
+	state.markServerUnavailable()
+	if !state.allowed(now.Add(time.Hour)) || state.RemainingSeconds != 300 {
+		t.Fatal("short lease expiry discarded the saved rest quota")
 	}
 }
 
-func TestOfflineLeaseSurvivesRestartWithoutRefill(t *testing.T) {
+func TestOfflineQuotaSurvivesRestartWithoutRefill(t *testing.T) {
 	now := testMoment()
 	state := clientState{Identity: "identity"}
 	state.apply(response{Action: "allow", QuotaSeconds: 600, RemainingSeconds: 50, LeaseSeconds: 90}, now, now)
@@ -51,17 +56,21 @@ func TestOfflineLeaseSurvivesRestartWithoutRefill(t *testing.T) {
 	if restarted.RemainingSeconds != 30 || restarted.PendingSeconds != 20 || !restarted.allowed(now.Add(25*time.Second)) {
 		t.Fatalf("unexpected restored state: %+v", restarted)
 	}
-	if restarted.allowed(now.Add(50 * time.Second)) {
-		t.Fatal("restart extended original lease")
+	if !restarted.allowed(now.Add(50 * time.Second)) {
+		t.Fatal("short lease expiry discarded remaining quota")
+	}
+	restarted.account(30, now.Add(55*time.Second))
+	if restarted.allowed(now.Add(55 * time.Second)) {
+		t.Fatal("consumed local quota still allowed access")
 	}
 }
 
-func TestOfflineAuthorizationExpiresForUnlimitedUsers(t *testing.T) {
+func TestUnlimitedQuotaHasNoShortOfflineExpiry(t *testing.T) {
 	now := testMoment()
 	state := clientState{}
 	state.apply(response{Action: "allow", LeaseSeconds: 86400}, now, now)
-	if !state.allowed(now.Add(119*time.Second)) || state.allowed(now.Add(120*time.Second)) {
-		t.Fatal("unlimited policy escaped maximum offline lease")
+	if !state.allowed(now.Add(time.Hour)) {
+		t.Fatal("short lease expiry blocked an unlimited quota without a known closing time")
 	}
 }
 
@@ -145,16 +154,16 @@ func TestStateRejectsDifferentIdentityTokenAndTampering(t *testing.T) {
 	}
 }
 
-func TestLeaseDoesNotGrowDuringNetworkDelayOrPastTransition(t *testing.T) {
+func TestKnownClosingTimeIsNotExtendedByNetworkDelay(t *testing.T) {
 	now := testMoment()
 	state := clientState{}
-	state.apply(response{Action: "allow", LeaseSeconds: 90, ServerTime: now, NextTransitionAt: now.Add(10 * time.Second)}, now, now.Add(5*time.Second))
+	state.apply(response{Action: "allow", LeaseSeconds: 90, ServerTime: now, NextLockAt: now.Add(10 * time.Second)}, now, now.Add(5*time.Second))
 	if !state.allowed(now.Add(9*time.Second)) || state.allowed(now.Add(10*time.Second)) {
-		t.Fatal("lease crossed schedule transition")
+		t.Fatal("access crossed the known closing time")
 	}
 	state.apply(response{Action: "allow", LeaseSeconds: 3}, now, now.Add(5*time.Second))
-	if state.allowed(now.Add(5 * time.Second)) {
-		t.Fatal("late response renewed already expired lease")
+	if !state.allowed(now.Add(5 * time.Second)) {
+		t.Fatal("short lease expiry replaced the last valid decision")
 	}
 }
 

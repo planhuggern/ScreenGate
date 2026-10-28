@@ -67,13 +67,15 @@ Eksempel på tillatelse:
 }
 ```
 
-`action` er `allow` eller `lock`. `reason` er `allowed`, `paused`, `schedule` eller `quota`. `quota_seconds=0` og `unlimited=true` betyr ubegrenset dagskvote, men ikke ubegrenset offline-tillatelse. `remaining_seconds=0` alene kan derfor ikke brukes til å bestemme om brukeren er låst.
+`action` er `allow` eller `lock`. `reason` er `allowed`, `paused`, `schedule` eller `quota`. `quota_seconds=0` og `unlimited=true` betyr ubegrenset dagskvote; pause og tidsplan gjelder fortsatt. `remaining_seconds=0` alene kan derfor ikke brukes til å bestemme om brukeren er låst.
 
-Klienten må avslutte tillatelsen ved det tidligste av:
+Fra klientversjon **2026.10.28.1** kontrollerer klienten:
 
-1. Oppbrukt gjenværende kvote.
-2. Utløpt `lease_seconds`, beregnet fra da forespørselen ble sendt.
-3. Neste regelendring i `next_transition_at`.
+1. At en tidligere gyldig serverbeslutning finnes og tillater bruk.
+2. At lokal restkvote gjenstår når dagskvoten er begrenset.
+3. At en kjent stengetid i `next_lock_at` ikke er passert.
+
+Ved kontaktfeil beholdes beslutning, restkvote og stengetid. `lease_seconds` og `next_transition_at` sendes fortsatt i eksisterende svarformat, men utløp av den korte leasen stenger ikke alene denne klientversjonen. Full ukeplan og avstemming av lokalt offline-forbruk er ennå ikke implementert; se [steg 4-status](STEP_4.md). Eldre klienter kan ha annen feiloppførsel.
 
 Ukjent tidspunkt angis med Go sin nulltid (`0001-01-01T00:00:00Z`). Ikke bruk denne som en faktisk planlagt åpning. Ved `lock` er tillatelsen null sekunder; `next_allowed_at` kan forklare neste planlagte åpning. Manuell pause har ingen automatisk åpning.
 
@@ -94,7 +96,7 @@ Feil returneres som riktig HTTP-status og et objekt som `{"error":"invalid heart
 | 429 | For mange forsøk; følg `Retry-After` |
 | 503 | Serveren kan ikke gi en pålitelig beslutning |
 
-401/403 tilbakekaller også klientens lokale tillatelse. Ved nettverksfeil og øvrige serverfeil gjelder bare allerede lagret tillatelse frem til dens opprinnelige utløp.
+401/403 tilbakekaller også klientens lokale tillatelse, uansett tidligere kontaktfeil. Ved nettverksfeil og øvrige serverfeil beholdes siste gyldige beslutning; lokalt forbruk trekkes fra restkvoten. Feilen gir ingen ny kvote og opphever ikke en tidligere stenging.
 
 ## Andre endepunkter
 
