@@ -98,4 +98,4 @@ Innstillingskildenes prioritet og valget av testmodus/låsemodus kontrolleres og
 
 Kontrollert med `go test ./cmd/client`, `go test -race ./...`, `go vet ./...` og Windows-bygg til `.artifacts/screengate-client-step3-state.exe`. Programmet er ikke installert eller startet gjennom dette arbeidet.
 
-Videre opprydding av serverens overvåkingskode er ikke utført i disse delene. Nye tilgangsregler og offline-avstemming er heller ikke innført gjennom denne strukturendringen.
+Serverens overvåkingskode er senere ryddet i en egen del: [Fra heartbeat til overvåkingssiden](MONITOR_FLOW.md). Den planlagte ansvarsdelingen i steg 3 er dermed gjennomført. Nye tilgangsregler og offline-avstemming er ikke innført gjennom strukturendringene.

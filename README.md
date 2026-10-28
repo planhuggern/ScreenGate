@@ -130,6 +130,8 @@ Sterkere manipulasjonsvern krever en separat Windows-tjeneste og kontopolicyer. 
 
 For å følge klientkoden, start med [Slik leser du Windows-klienten](docs/CLIENT_FLOW.md). Den beskriver hovedløpet og hvilke filer som har ansvar for rapportering, telling, lagring og låsing.
 
+For overvåkingskoden på serveren, se [Fra heartbeat til overvåkingssiden](docs/MONITOR_FLOW.md). Den skiller mottak, databaselagring og visning.
+
 Go 1.25 eller nyere:
 
 ```powershell
