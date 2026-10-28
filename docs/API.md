@@ -33,7 +33,7 @@ Disse endepunktene er offentlige; privat signeringsnøkkel eller enhetsnøkler s
   "device_id":"Nora-PC",
   "user":"Nora",
   "heartbeat_id":"tilfeldig-unik-id-per-rapport",
-  "client_version":"2026.10.28.2",
+  "client_version":"2026.10.28.3",
   "locked":false,
   "usage":{
     "id":"unik-id-for-forbruksrapporten",
@@ -45,7 +45,7 @@ Disse endepunktene er offentlige; privat signeringsnøkkel eller enhetsnøkler s
 }
 ```
 
-- `client_version` identifiserer klientutgaven. Samme versjons-ID sendes i `User-Agent: ScreenGate-Client/2026.10.28.2` ved heartbeat og programrapporter. Eldre klienter kan utelate feltet.
+- `client_version` identifiserer klientutgaven. Samme versjons-ID sendes i `User-Agent: ScreenGate-Client/2026.10.28.3` ved heartbeat og programrapporter. Eldre klienter kan utelate feltet.
 - `locked` er `true` mens Windows er låst, ellers `false`. Klienten sender heartbeat ved endring og hvert 30. sekund, også mens den er låst.
 - Med `usage` belaster serveren de målte intervallene én gang og legger ikke også til mottaksintervaller. Forsinket bruk registreres på faktisk dato/time etter serverens tidssone. Ulåst tid telles også uten tastatur- eller museaktivitet.
 - Uten `usage` beholdes eldre beregning fra serverens mottakstidspunkter: første rapport starter målingen, og neste rapport belaster intervallet hvis forrige status var ulåst og oppholdet er høyst 63 sekunder. Slike eldre rapporter etterregistrerer ikke tid fra lengre nettbrudd.
@@ -78,6 +78,13 @@ Eksempel på tillatelse:
   "policy_date":"2026-10-28",
   "usage_ack":"unik-id-for-forbruksrapporten",
   "timezone":"Europe/Oslo",
+  "policy":{
+    "daily_quota_seconds":1800,
+    "paused":false,
+    "weekdays":[],
+    "bonus_seconds":0,
+    "bonus_date":"2026-10-28"
+  },
   "next_allowed_at":"0001-01-01T00:00:00Z",
   "next_transition_at":"2026-10-29T00:00:00+01:00",
   "next_lock_at":"0001-01-01T00:00:00Z"
@@ -92,7 +99,15 @@ Fra klientversjon **2026.10.28.1** kontrollerer klienten:
 2. At lokal restkvote gjenstår når dagskvoten er begrenset.
 3. At en kjent stengetid i `next_lock_at` ikke er passert.
 
-Ved kontaktfeil beholdes beslutning, restkvote og stengetid. `lease_seconds` og `next_transition_at` sendes fortsatt i eksisterende svarformat, men utløp av den korte leasen stenger ikke alene denne klientversjonen. Avstemming er innført fra `2026.10.28.2`; full lagret ukeplan og ny dagskvote uten nett gjenstår. Se [steg 4-status](STEP_4.md). Eldre klienter kan ha annen feiloppførsel.
+Ved kontaktfeil beholdes beslutning, restkvote og stengetid. `lease_seconds` og `next_transition_at` sendes fortsatt i eksisterende svarformat, men utløp av den korte leasen stenger ikke alene denne klientversjonen. Avstemming er innført fra `2026.10.28.2`; lagret ukeplan og ny dagskvote uten nett er innført fra `2026.10.28.3`. Se [steg 4-status](STEP_4.md). Eldre klienter kan ha annen feiloppførsel.
+
+### Lagret ukeplan fra klient 2026.10.28.3
+
+`policy` inneholder reglene som brukes lokalt ved kontaktbrudd. `daily_quota_seconds` er standardkvoten, `paused` gjelder uten sluttdato, og `bonus_seconds` gjelder bare `bonus_date`. Bonus øker bare en begrenset kvote. `weekdays` inneholder normalt syv objekter med feltene `weekday` (søndag=0), `configured`, `quota_seconds`, `disabled`, `start_minute` og `end_minute`.
+
+En ukedag som mangler eller har `configured=false` arver standardkvoten og tillater hele dagen. En konfigurert dag bruker egen kvote og tidsvindu. `disabled=true` stenger hele den kalenderdagen. Tidsvinduet inkluderer startminuttet og utelukker sluttminuttet; `end_minute=1440` betyr slutten av dagen. Start større enn slutt betyr et vindu over midnatt. En uttrykkelig stengt påfølgende dag overstyrer dette vinduet. Lik start og slutt er ugyldig; hele dagen angis med 0–1440.
+
+Klienten følger serverens navngitte `timezone`, normalt `Europe/Oslo`, og teller målt bruk på riktig dato. Ved midnatt gis den nye ukedagens kvote uten gårsdagens bonus. Dagens restkvote fylles ikke opp ved lokale regelvurderinger eller omstart. Et gyldig serversvar overtar fortsatt felles restkvote etter avstemming. Klienten kontrollerer at regelobjektets dato, kvote og handling stemmer med svaret. Et eldre svar uten `policy` gir ingen full ukeplan for fremtidige døgn; eksisterende restkvote og kjent stengetid brukes da som før.
 
 Ukjent tidspunkt angis med Go sin nulltid (`0001-01-01T00:00:00Z`). Ikke bruk denne som en faktisk planlagt åpning. Ved `lock` er tillatelsen null sekunder; `next_allowed_at` kan forklare neste planlagte åpning. Manuell pause har ingen automatisk åpning.
 

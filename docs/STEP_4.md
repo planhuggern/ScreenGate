@@ -1,6 +1,6 @@
 # Steg 4: lokal kvote og avstemming
 
-Del 1 ble innført i klientversjon **2026.10.28.1**. Del 2, avstemming ved gjenoppkobling, er innført i **2026.10.28.2** med tilhørende serveroppdatering. Lagret ukeplan og ny dagskvote uten nett gjenstår. Begge delene følger de [vedtatte reglene](BEHAVIOR_RULES.md).
+Del 1 ble innført i klientversjon **2026.10.28.1**. Del 2, avstemming ved gjenoppkobling, er innført i **2026.10.28.2**. Del 3, lagret ukeplan og ny dagskvote uten nett, er innført i **2026.10.28.3**. Del 2 og 3 har tilhørende serveroppdateringer. Delene følger de [vedtatte reglene](BEHAVIOR_RULES.md).
 
 ## Oppførselen som er endret
 
@@ -84,6 +84,41 @@ Testene dekker tapte svar, endret låsestatus, omstart, flere PC-er, endret bonu
 
 Del 2 kontrolleres med `go test ./...`, `go test -race ./...`, `go vet ./...` og separate server-/klientbygg under `.artifacts`. Ingen klient er installert eller startet, og ingen utrulling er gjort.
 
+## Del 3: lagret ukeplan og døgnskifte uten nett
+
+Serveren sender nå et `policy`-objekt med standardkvote, alle ukedager, pause og dagens bonus med dato. Klienten lagrer dette i den signerte tilstandsfilen sammen med restkvoten. Det er ingen nye innstillinger eller databaseendringer i denne delen.
+
+Ved nettbrudd gjelder følgende:
+
+- Dagens restkvote videreføres og trekkes lokalt. Klienten beregner ikke dagens restkvote på nytt fra ukeplanen.
+- Ved midnatt etter serverens tidssone starter den nye ukedagens kvote. Gårsdagens bonus følger ikke med. Omstart samme dag fyller ikke opp kvoten igjen.
+- Lagrede tidsvinduer kan både stenge og åpne tilgang. En uttrykkelig stengt dag overstyrer også et tidsvindu fra kvelden før. Ubegrenset kvote opphever ikke tidsplan eller pause.
+- En pause fortsetter til et nytt serversvar opphever den. Nøkkelavvisning, lagringsfeil og oppdaget klokketilbakegang kan heller ikke oppheves av den lagrede ukeplanen.
+- Søvn og avslått PC telles ikke som bruk. Hvis flere dager er passert, brukes reglene for datoen klienten kommer tilbake på.
+
+Eksempel: Onsdag har barnet 20 sekunder igjen, inkludert eventuell bonus. Torsdagens kvote er 120 sekunder. Ti sekunder ulåst bruk på hver side av midnatt gir 110 sekunder igjen torsdag. Rapporten til serveren beholder ti sekunder på hver dato. En omstart torsdag gir fortsatt 110 sekunder, ikke 120.
+
+En liten lokal oversikt over eget forbruk per dato beskytter også mot et serversvar som var på vei over midnatt. Den beholder både bekreftet og ubekreftet bruk. Ved dagens ordinære avstemming er serverens felles restkvote fortsatt autoritativ, også når andre PC-er har brukt tid. Gamle datoer ryddes bort automatisk.
+
+### Hvor reglene ligger
+
+| Fil | Hva du leser den for |
+| --- | --- |
+| `internal/screenpolicy/rules.go` | Felles forståelse av ukedager, tidsvinduer, midnatt og datobundet bonus. Server og klient bruker samme kode. |
+| `cmd/client/local_policy.go` | Når dagens kvote videreføres, når en ny dag starter og hvordan målt bruk fordeles mellom datoene. |
+| `cmd/client/state.go` | Rekkefølgen ved lokal telling og når en bekreftet serverbeslutning erstatter tilstanden. |
+| `cmd/client/local_policy_test.go` | Konkrete eksempler for midnatt, omstart, åpning/stenging, pause og sommer-/vintertid. |
+
+Kalenderen følger `timezone` fra serveren, normalt `Europe/Oslo`, uavhengig av PC-ens tidssone. Bruk en navngitt tidssone i serverinnstillingen `SCREENGATE_TIMEZONE` for korrekte fremtidige sommertidsendringer. Den eldre verdien `Local` kan bare videreføres med sist mottatte UTC-avvik.
+
+### Oppgradering og kontroll
+
+Oppdater serveren før klient **2026.10.28.3** for å få ukeplanen overført. Eldre klientfiler er fortsatt lesbare, men inneholder ingen full ukeplan. Før første gyldige svar med `policy` viderefører klienten den gamle restkvoten og kjente stengetiden; den finner ikke på fremtidige dagskvoter. Et svar fra en eldre server uten `policy` erstatter også den gamle planen, slik at en nyere pausebeslutning ikke overstyres lokalt.
+
+Testene dekker døgnskifte med ulike ukedagskvoter, bonusutløp, forbruk på begge sider av midnatt, omstart uten påfyll, pause, stengt dag, ubegrenset kvote, søvn over flere dager, åpning etter et stengt tidsvindu, gjentatte og manglende sommertidstimer, serverens tidssone, avstemming med andre enheters forbruk, forsinket svar over midnatt og ugyldige regeldata. En test kjører midnatt gjennom den vanlige klientløkken med utilgjengelig server.
+
+Kontrollene er `go test ./...`, `go test -race ./...`, `go vet ./...` og separate Windows-bygg under `.artifacts`. Ingen klient er installert eller startet, og ingen utrulling er gjort.
+
 ## Hva som gjenstår
 
-Full lagret ukeplan, ny dagskvote ved midnatt uten nett og lokal håndtering av fremtidige åpningstider gjenstår også. Denne delen bevarer allerede kjent kvote og stengetid; den er ikke en komplett implementering av alle offline-reglene.
+Observasjon av feil ved avlesing av Windows-status gjenstår i steg 4. Faktisk låsing og oppdatering må også prøves på en egen Windows-standardkonto før utrulling. Beskyttelse mot at klientprosessen avsluttes er fortsatt et eget senere prosjekt.

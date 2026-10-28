@@ -89,7 +89,11 @@ func (c *clientLoop) poll(now time.Time) {
 
 	currentState := c.runtime.sessionState(c.runtime.idleTimeout)
 	seconds := c.meter.update(currentState != "locked", now)
+	previousDate := c.state.PolicyDate
 	c.state.account(seconds, now)
+	if c.state.PolicyDate != previousDate {
+		c.warnings = warningState{}
+	}
 
 	if currentState != "active" {
 		c.flushFocus(now)

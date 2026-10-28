@@ -4,11 +4,14 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"screengate/internal/screenpolicy"
 )
 
 var errInvalidHeartbeat = errors.New("invalid heartbeat")
 
 type heartbeatResult struct {
+	Policy               *screenpolicy.Rules
 	UsageAck             string
 	Timezone             string
 	CreditedMilliseconds int64
@@ -71,6 +74,7 @@ func (s *screenTimeService) recordHeartbeat(h heartbeat) (heartbeatResult, error
 		ack = h.Usage.ID
 	}
 	return heartbeatResult{
+		Policy:               policy.rules(date),
 		UsageAck:             ack,
 		Timezone:             s.location.String(),
 		CreditedMilliseconds: credit,

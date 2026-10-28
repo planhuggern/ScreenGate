@@ -76,6 +76,27 @@ func validateSavedState(state clientState, identity string) error {
 	if !identityMatches || !pendingWithinLimit || !quotaNonnegative || !actionKnown {
 		return errors.New("saved state does not match this client")
 	}
+	if state.CachedPolicy != nil {
+		if err := state.CachedPolicy.Validate(); err != nil {
+			return fmt.Errorf("invalid saved policy: %w", err)
+		}
+		if _, err := time.Parse("2006-01-02", state.PolicyDate); err != nil {
+			return errors.New("saved policy has no valid date")
+		}
+		if state.PolicyTimezone == "" || state.PolicyUTCOffset < -24*60*60 || state.PolicyUTCOffset > 24*60*60 {
+			return errors.New("saved policy has no valid timezone")
+		}
+		if state.PolicyTimezone != "Local" {
+			if _, err := time.LoadLocation(state.PolicyTimezone); err != nil {
+				return errors.New("saved policy has an unknown timezone")
+			}
+		}
+	}
+	for date, seconds := range state.LocalDayUsage {
+		if _, err := time.Parse("2006-01-02", date); err != nil || seconds < 0 || seconds > 26*60*60 {
+			return errors.New("invalid saved daily usage")
+		}
+	}
 	if state.Report != nil && (state.Report.HeartbeatID == "" || state.Report.ActiveSeconds < 0 || state.Report.ActiveSeconds > 86400) {
 		return errors.New("invalid pending report")
 	}

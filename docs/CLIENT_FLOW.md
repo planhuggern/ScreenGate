@@ -80,6 +80,8 @@ Hvis en rapport allerede venter på svar, starter ikke `sendHeartbeat` enda en p
 | [state.go](../cmd/client/state.go) | Holder lokal resttid, siste serverbeslutning og ventende rapport, og bestemmer hvordan de endres. |
 | [state_store.go](../cmd/client/state_store.go) | Leser, kontrollerer, signerer og skriver tilstandsfilen i eksisterende format. |
 | [usage.go](../cmd/client/usage.go) | Samler målt bruk, beholder forbruksrapporten til bekreftelse og beregner utestående bruk per dag. |
+| [local_policy.go](../cmd/client/local_policy.go) | Følger lagret ukeplan og starter ny dagskvote ved midnatt uten å fylle opp dagens restkvote. |
+| [rules.go](../internal/screenpolicy/rules.go) | Kalenderreglene som både server og klient bruker for ukedager, tidsvinduer og bonusdato. |
 | [activity.go](../cmd/client/activity.go) | Måler lokale sekunder mellom sjekkene. |
 | [session_windows.go](../cmd/client/session_windows.go) | Leser Windows-økten gjennom Windows-API-er. |
 | [enforcement.go](../cmd/client/enforcement.go) | Utfører låseforsøk eller registrerer at den ville ha låst i testmodus. |
@@ -96,6 +98,8 @@ Tre avgrensede deler av steg 3 er gjennomført. Først ble den store løkkefunks
 Steg 3 var strukturendringer med testene fra [steg 2-rapporten](STEP_2.md) som grunnlag. Senere er regelendringer innført i [steg 4](STEP_4.md): `handleHeartbeatError` bevarer siste beslutning ved kontaktfeil, og `allowed` håndhever lokal restkvote og kjent stengetid. `ServerUnavailable` holder kontaktfeil adskilt fra om en tidligere gyldig beslutning finnes. Testene for de rettede avvikene er oppdatert; resten av de [vedtatte reglene](BEHAVIOR_RULES.md) innføres videre i egne endringer.
 
 Fra `2026.10.28.2` går lokalt målte intervaller også gjennom `usage.go`. `prepareUsage` lager et øyeblikksbilde med en stabil ID. `prepareReport` legger dette ved heartbeaten. `protocol.go` krever at serveren bekrefter samme ID, og `apply` fjerner først da det bekreftede forbruket. Nyere bruk forblir i køen og trekkes fortsatt lokalt. Denne køen og rapporten lagres sammen med resten av tilstanden, slik at et mistet svar eller en omstart ikke mister data. Ved gjenoppkobling sender løkken resten av den oppsamlede køen før den går tilbake til vanlig rapportrytme.
+
+Fra `2026.10.28.3` går kalenderreglene gjennom `local_policy.go`. `refreshPolicy` viderefører dagens restkvote, men gir riktig ny dagskvote når serverens kalenderdato skifter. `rememberDailyUsage` fordeler målt bruk mellom datoer, slik at et sent svar over midnatt ikke gir brukt tid tilbake. Ukeplan, pause og datobundet bonus kommer fra serverens `policy`-objekt. Selve tolkningen av ukeplanen ligger i `internal/screenpolicy`, felles for klient og server. Oppdagede lokale feil holdes separat i `LocalBlockReason`, slik at en åpning i ukeplanen ikke opphever for eksempel en nøkkelavvisning.
 
 Innstillingskildenes prioritet og valget av testmodus/låsemodus kontrolleres også i `config_test.go`, med vanlige filer og kommandolinjeargumenter. Testene simulerer ingen Windows-låsing.
 

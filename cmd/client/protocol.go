@@ -11,10 +11,12 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"screengate/internal/screenpolicy"
 )
 
 // Bump for each client release, including fixes distributed by the updater.
-const clientVersion = "2026.10.28.2"
+const clientVersion = "2026.10.28.3"
 
 type heartbeat struct {
 	Usage         *usageBatch `json:"usage,omitempty"`
@@ -28,18 +30,19 @@ type heartbeat struct {
 }
 
 type response struct {
-	UsageAck         string    `json:"usage_ack,omitempty"`
-	Timezone         string    `json:"timezone,omitempty"`
-	Action           string    `json:"action"`
-	PolicyVersion    int       `json:"policy_version"`
-	RemainingSeconds int       `json:"remaining_seconds"`
-	QuotaSeconds     int       `json:"quota_seconds"`
-	LeaseSeconds     int       `json:"lease_seconds"`
-	Reason           string    `json:"reason"`
-	ServerTime       time.Time `json:"server_time"`
-	PolicyDate       string    `json:"policy_date"`
-	NextTransitionAt time.Time `json:"next_transition_at"`
-	NextLockAt       time.Time `json:"next_lock_at"`
+	Policy           *screenpolicy.Rules `json:"policy,omitempty"`
+	UsageAck         string              `json:"usage_ack,omitempty"`
+	Timezone         string              `json:"timezone,omitempty"`
+	Action           string              `json:"action"`
+	PolicyVersion    int                 `json:"policy_version"`
+	RemainingSeconds int                 `json:"remaining_seconds"`
+	QuotaSeconds     int                 `json:"quota_seconds"`
+	LeaseSeconds     int                 `json:"lease_seconds"`
+	Reason           string              `json:"reason"`
+	ServerTime       time.Time           `json:"server_time"`
+	PolicyDate       string              `json:"policy_date"`
+	NextTransitionAt time.Time           `json:"next_transition_at"`
+	NextLockAt       time.Time           `json:"next_lock_at"`
 }
 
 type focusEvent struct {
@@ -151,6 +154,41 @@ func postHeartbeat(ctx context.Context, client *http.Client, endpoint, token str
 	}
 	if result.RemainingSeconds < 0 || result.QuotaSeconds < 0 || result.PolicyVersion < 0 || result.LeaseSeconds < 0 {
 		return response{}, errors.New("server returned a negative authorization value")
+	}
+	if result.Policy != nil {
+		if err := result.Policy.Validate(); err != nil {
+			return response{}, fmt.Errorf("invalid offline policy: %w", err)
+		}
+		if result.ServerTime.IsZero() || result.Timezone == "" {
+			return response{}, errors.New("offline policy requires server time and timezone")
+		}
+		location := time.FixedZone("server", 0)
+		if result.Timezone == "Local" {
+			_, offset := result.ServerTime.Zone()
+			location = time.FixedZone("server", offset)
+		} else {
+			var err error
+			location, err = time.LoadLocation(result.Timezone)
+			if err != nil {
+				return response{}, errors.New("unknown policy timezone")
+			}
+		}
+		at := result.ServerTime.In(location)
+		if result.PolicyDate != at.Format("2006-01-02") || result.Policy.BonusDate != result.PolicyDate || result.QuotaSeconds != result.Policy.QuotaAt(at) {
+			return response{}, errors.New("offline policy does not match the server decision")
+		}
+		action, reason := "allow", "allowed"
+		switch {
+		case result.Policy.Paused:
+			action, reason = "lock", "paused"
+		case !result.Policy.Allows(at):
+			action, reason = "lock", "schedule"
+		case result.QuotaSeconds > 0 && result.RemainingSeconds == 0:
+			action, reason = "lock", "quota"
+		}
+		if result.Action != action || result.Reason != reason {
+			return response{}, errors.New("offline policy contradicts the server action")
+		}
 	}
 	if result.Action == "allow" && (result.LeaseSeconds == 0 || (result.QuotaSeconds > 0 && result.RemainingSeconds == 0)) {
 		return response{}, errors.New("allow response has no usable authorization lease")

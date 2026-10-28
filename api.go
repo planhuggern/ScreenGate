@@ -6,25 +6,28 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"screengate/internal/screenpolicy"
 )
 
 type response struct {
-	UsageAck          string    `json:"usage_ack,omitempty"`
-	Timezone          string    `json:"timezone,omitempty"`
-	Action            string    `json:"action"`
-	Message           string    `json:"message"`
-	DailyTotalSeconds int       `json:"daily_total_seconds"`
-	PolicyVersion     int       `json:"policy_version"`
-	RemainingSeconds  int       `json:"remaining_seconds"`
-	QuotaSeconds      int       `json:"quota_seconds"`
-	Unlimited         bool      `json:"unlimited"`
-	LeaseSeconds      int       `json:"lease_seconds"`
-	Reason            string    `json:"reason"`
-	ServerTime        time.Time `json:"server_time"`
-	PolicyDate        string    `json:"policy_date"`
-	NextAllowedAt     time.Time `json:"next_allowed_at,omitempty"`
-	NextTransitionAt  time.Time `json:"next_transition_at,omitempty"`
-	NextLockAt        time.Time `json:"next_lock_at,omitempty"`
+	Policy            *screenpolicy.Rules `json:"policy,omitempty"`
+	UsageAck          string              `json:"usage_ack,omitempty"`
+	Timezone          string              `json:"timezone,omitempty"`
+	Action            string              `json:"action"`
+	Message           string              `json:"message"`
+	DailyTotalSeconds int                 `json:"daily_total_seconds"`
+	PolicyVersion     int                 `json:"policy_version"`
+	RemainingSeconds  int                 `json:"remaining_seconds"`
+	QuotaSeconds      int                 `json:"quota_seconds"`
+	Unlimited         bool                `json:"unlimited"`
+	LeaseSeconds      int                 `json:"lease_seconds"`
+	Reason            string              `json:"reason"`
+	ServerTime        time.Time           `json:"server_time"`
+	PolicyDate        string              `json:"policy_date"`
+	NextAllowedAt     time.Time           `json:"next_allowed_at,omitempty"`
+	NextTransitionAt  time.Time           `json:"next_transition_at,omitempty"`
+	NextLockAt        time.Time           `json:"next_lock_at,omitempty"`
 }
 
 type focusEvent struct {
@@ -104,7 +107,16 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	status, monitorReason = http.StatusOK, result.Reason
 	a.recordDeviceSeen(r, result.ReportedAt)
-	writeJSON(w, http.StatusOK, response{UsageAck: result.UsageAck, Timezone: result.Timezone, Action: result.Action, Message: "ok", DailyTotalSeconds: result.DailyTotalSeconds, PolicyVersion: result.PolicyVersion, RemainingSeconds: result.RemainingSeconds, QuotaSeconds: result.QuotaSeconds, Unlimited: result.Unlimited, LeaseSeconds: result.LeaseSeconds, Reason: result.Reason, ServerTime: result.ServerTime, PolicyDate: result.PolicyDate, NextAllowedAt: result.NextAllowedAt, NextTransitionAt: result.NextTransitionAt, NextLockAt: result.NextLockAt})
+	writeJSON(w, http.StatusOK, response{
+		Policy: result.Policy, UsageAck: result.UsageAck, Timezone: result.Timezone,
+		Action: result.Action, Message: "ok", Reason: result.Reason,
+		DailyTotalSeconds: result.DailyTotalSeconds, PolicyVersion: result.PolicyVersion,
+		RemainingSeconds: result.RemainingSeconds, QuotaSeconds: result.QuotaSeconds,
+		Unlimited: result.Unlimited, LeaseSeconds: result.LeaseSeconds,
+		ServerTime: result.ServerTime, PolicyDate: result.PolicyDate,
+		NextAllowedAt: result.NextAllowedAt, NextTransitionAt: result.NextTransitionAt,
+		NextLockAt: result.NextLockAt,
+	})
 }
 
 func (a *application) healthHandler(w http.ResponseWriter, r *http.Request) {

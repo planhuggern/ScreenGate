@@ -13,7 +13,7 @@ ScreenGate styrer skjermtid på Windows-PC-er fra en liten Go-server hjemme. For
 - Engangskoder for tilkobling av Windows-brukere. Nye brukere starter med én time per dag.
 - Varsler på Windows før tiden er brukt opp, og lokal låsing når tillatelsen utløper.
 - Varig klienttilstand og idempotente rapporter: omstart og tapte svar skal ikke gi ny kvote eller dobbelttelle aktivitet.
-- Lokal videreføring av siste restkvote ved nettbrudd, med håndheving av kjent stengetid og bekreftet avstemming i klient 2026.10.28.2; se [status for regelendringene](docs/STEP_4.md).
+- Lokal restkvote og ukeplan ved nettbrudd, ny dagskvote ved midnatt og bekreftet avstemming i klient 2026.10.28.3; se [status for regelendringene](docs/STEP_4.md).
 - Konsistent SQLite-sikkerhetskopi som kan lastes ned fra foreldreoversikten.
 
 Forsiden viser ingen navn eller aktivitetsdata. Registrering av programmer er avslått som standard. Serveren lagrer ikke programnavn, vindustitler, innhold eller nettleserhistorikk.
@@ -116,7 +116,7 @@ En dagsgrense på `0` betyr ubegrenset kvote; pause og tidsplan gjelder likevel.
 
 Et tidsrom som `20:00–02:00` starter på den valgte ukedagen og fortsetter neste natt. En eksplisitt skjermfri dag stenger også for en slik videreføring. Kvoten og bonusen nullstilles ved kalenderdagens midnatt.
 
-Endringer når en tilkoblet klient ved neste rapport, vanligvis innen 30 sekunder. Fra klientversjon **2026.10.28.1** videreføres siste gyldige restkvote ved nettbrudd: ulåst bruk trekkes lokalt, og oppbrukt kvote eller en allerede kjent stengetid fører til låseforsøk i låsemodus. Den tidligere 90-sekundersfristen stenger ikke alene. Omstart fyller ikke opp kvoten, og uten tidligere gyldig beslutning holdes tilgangen stengt. Fra **2026.10.28.2** avstemmes også forbruket ved gjenoppkobling. Full lagret ukeplan og ny dagskvote uten nett gjenstår; se [status og begrensninger](docs/STEP_4.md).
+Endringer når en tilkoblet klient ved neste rapport, vanligvis innen 30 sekunder. Fra klientversjon **2026.10.28.1** videreføres siste gyldige restkvote ved nettbrudd: ulåst bruk trekkes lokalt, og oppbrukt kvote eller en allerede kjent stengetid fører til låseforsøk i låsemodus. Den tidligere 90-sekundersfristen stenger ikke alene. Omstart fyller ikke opp kvoten, og uten tidligere gyldig beslutning holdes tilgangen stengt. Fra **2026.10.28.2** avstemmes også forbruket ved gjenoppkobling. Fra **2026.10.28.3** lagres ukeplanen: tidsvinduer kan åpne igjen uten nett, og ved midnatt starter riktig dagskvote uten gårsdagens bonus. Pause videreføres. Dette krever et gyldig svar med ukeplan fra den oppdaterte serveren; se [status og begrensninger](docs/STEP_4.md).
 
 ## Hva håndhevingen beskytter mot
 

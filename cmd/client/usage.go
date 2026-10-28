@@ -55,15 +55,19 @@ func (s *clientState) prepareUsage() error {
 	return nil
 }
 
-func (s *clientState) recordUsage(seconds int, now time.Time) {
-	if !s.UsageStarted || seconds <= 0 {
-		return
+func (s *clientState) recordUsage(seconds int, now time.Time) usageInterval {
+	if seconds <= 0 {
+		return usageInterval{}
 	}
 	end := time.Unix(now.Add(s.ServerClockOffset).Unix(), 0).UTC()
 	start := end.Add(-time.Duration(seconds) * time.Second)
 	if start.Before(s.LastUsageEnd) {
 		start = s.LastUsageEnd
 		end = start.Add(time.Duration(seconds) * time.Second)
+	}
+	measured := usageInterval{Start: start, End: end}
+	if !s.UsageStarted {
+		return measured
 	}
 	s.LastUsageEnd = end
 	for start.Before(end) {
@@ -79,6 +83,7 @@ func (s *clientState) recordUsage(seconds int, now time.Time) {
 		}
 		start = until
 	}
+	return measured
 }
 
 func (s *clientState) updateUsageClock(result response, sentAt time.Time) {
@@ -106,12 +111,7 @@ func (s *clientState) updateUsageClock(result response, sentAt time.Time) {
 }
 
 func (s *clientState) unacknowledgedUsage(date string) int {
-	location := time.FixedZone("server", s.PolicyUTCOffset)
-	if s.PolicyTimezone != "" && s.PolicyTimezone != "Local" {
-		if configured, err := time.LoadLocation(s.PolicyTimezone); err == nil {
-			location = configured
-		}
-	}
+	location := s.policyLocation()
 	start, err := time.ParseInLocation("2006-01-02", date, location)
 	if err != nil {
 		return s.PendingSeconds // Legacy/direct callers without a policy date.

@@ -2,6 +2,8 @@ package main
 
 import (
 	"time"
+
+	"screengate/internal/screenpolicy"
 )
 
 const maxLeaseSeconds = 120
@@ -9,17 +11,21 @@ const maxLeaseSeconds = 120
 // The last server decision and locally consumed quota survive restarts. A pending
 // report keeps its ID when a response is lost and the report is retried.
 type clientState struct {
-	UsageStarted      bool            `json:"usage_started,omitempty"`
-	PendingUsage      *usageBatch     `json:"pending_usage,omitempty"`
-	UnreportedUsage   []usageInterval `json:"unreported_usage,omitempty"`
-	LastUsageEnd      time.Time       `json:"last_usage_end,omitzero"`
-	ServerClockOffset time.Duration   `json:"server_clock_offset,omitempty"`
-	UsageClockKnown   bool            `json:"usage_clock_known,omitempty"`
-	PolicyTimezone    string          `json:"policy_timezone,omitempty"`
-	PolicyUTCOffset   int             `json:"policy_utc_offset,omitempty"`
-	Identity          string          `json:"identity"`
-	Action            string          `json:"action"`
-	Reason            string          `json:"reason"`
+	CachedPolicy      *screenpolicy.Rules `json:"cached_policy,omitempty"`
+	LocalBlockReason  string              `json:"local_block_reason,omitempty"`
+	NextScheduleCheck time.Time           `json:"next_schedule_check,omitzero"`
+	LocalDayUsage     map[string]int      `json:"local_day_usage,omitempty"`
+	UsageStarted      bool                `json:"usage_started,omitempty"`
+	PendingUsage      *usageBatch         `json:"pending_usage,omitempty"`
+	UnreportedUsage   []usageInterval     `json:"unreported_usage,omitempty"`
+	LastUsageEnd      time.Time           `json:"last_usage_end,omitzero"`
+	ServerClockOffset time.Duration       `json:"server_clock_offset,omitempty"`
+	UsageClockKnown   bool                `json:"usage_clock_known,omitempty"`
+	PolicyTimezone    string              `json:"policy_timezone,omitempty"`
+	PolicyUTCOffset   int                 `json:"policy_utc_offset,omitempty"`
+	Identity          string              `json:"identity"`
+	Action            string              `json:"action"`
+	Reason            string              `json:"reason"`
 	// Connection failure and the presence of a prior decision are independent.
 	ServerUnavailable bool       `json:"server_unavailable,omitempty"`
 	ServerContacted   bool       `json:"server_contacted"`
@@ -42,6 +48,7 @@ func (s *clientState) allowed(now time.Time) bool {
 	if now.Before(s.UpdatedAt) {
 		s.invalidate("clock_changed")
 	}
+	s.refreshPolicy(now)
 	if s.Action != "allow" {
 		return false
 	}
@@ -55,6 +62,7 @@ func (s *clientState) allowed(now time.Time) bool {
 }
 
 func (s *clientState) invalidate(reason string) {
+	s.LocalBlockReason = reason
 	s.Action = "lock"
 	s.Reason = reason
 	s.LeaseExpiresAt = time.Time{}
@@ -80,17 +88,24 @@ func (s *clientState) account(seconds int, now time.Time) {
 	if now.Before(s.UpdatedAt) {
 		s.invalidate("clock_changed")
 	}
+	s.refreshPolicy(now)
 	if seconds > 0 {
-		s.recordUsage(seconds, now)
+		interval := s.recordUsage(seconds, now)
+		charged := seconds
+		if s.CachedPolicy != nil {
+			s.rememberDailyUsage(interval)
+			charged = s.usageOnDate(interval, s.PolicyDate)
+		}
 		if s.PendingSeconds == 0 {
 			s.PendingDate = s.PolicyDate
 		}
 		s.PendingSeconds = min(86400, s.PendingSeconds+seconds)
 		if s.QuotaSeconds > 0 {
-			s.RemainingSeconds = max(0, s.RemainingSeconds-seconds)
+			s.RemainingSeconds = max(0, s.RemainingSeconds-charged)
 		}
 	}
 	s.UpdatedAt = now
+	s.refreshPolicy(now)
 }
 
 func (s *clientState) prepareReport(deviceID, username, sessionState string, now time.Time) (heartbeat, error) {
@@ -116,6 +131,8 @@ func (s *clientState) prepareReport(deviceID, username, sessionState string, now
 
 func (s *clientState) apply(result response, sentAt, receivedAt time.Time) {
 	s.updateUsageClock(result, sentAt)
+	s.installPolicy(result)
+	s.LocalBlockReason = ""
 	if s.PendingUsage != nil && result.UsageAck == s.PendingUsage.ID {
 		s.PendingUsage = nil
 	}
@@ -154,6 +171,7 @@ func (s *clientState) apply(result response, sentAt, receivedAt time.Time) {
 	if result.Action != "allow" {
 		s.LeaseExpiresAt = time.Time{}
 	}
+	s.refreshPolicy(receivedAt)
 }
 
 // Restore compatibility fields and check the clock without refilling quota.
