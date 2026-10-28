@@ -49,7 +49,7 @@ func TestUnreadableStateContentRetainsClosedFallback(t *testing.T) {
 		name, content string
 	}{
 		{"truncated JSON", `{"state":`},
-		{"oversized file", strings.Repeat(" ", 64*1024+1)},
+		{"oversized file", strings.Repeat(" ", maxStateBytes+1)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "state.json")

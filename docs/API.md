@@ -33,18 +33,33 @@ Disse endepunktene er offentlige; privat signeringsnøkkel eller enhetsnøkler s
   "device_id":"Nora-PC",
   "user":"Nora",
   "heartbeat_id":"tilfeldig-unik-id-per-rapport",
-  "client_version":"2026.10.19.1",
-  "locked":false
+  "client_version":"2026.10.28.2",
+  "locked":false,
+  "usage":{
+    "id":"unik-id-for-forbruksrapporten",
+    "remaining_seconds":900,
+    "quota_seconds":1800,
+    "policy_date":"2026-10-28",
+    "intervals":[{"start":"2026-10-28T10:00:00Z","end":"2026-10-28T10:10:00Z"}]
+  }
 }
 ```
 
-- `client_version` identifiserer klientutgaven. Samme versjons-ID sendes i `User-Agent: ScreenGate-Client/2026.10.19.1` ved heartbeat og programrapporter. Eldre klienter kan utelate feltet.
+- `client_version` identifiserer klientutgaven. Samme versjons-ID sendes i `User-Agent: ScreenGate-Client/2026.10.28.2` ved heartbeat og programrapporter. Eldre klienter kan utelate feltet.
 - `locked` er `true` mens Windows er låst, ellers `false`. Klienten sender heartbeat ved endring og hvert 30. sekund, også mens den er låst.
-- Serveren beregner bruk fra sine egne mottakstidspunkter. Første heartbeat starter målingen uten belastning. Intervallet frem til neste heartbeat telles bare hvis forrige status var ulåst. Dermed avslutter låsing et bruksintervall, og opplåsing starter et nytt.
-- Opphold på mer enn 63 sekunder belastes ikke. Tid uten kontakt etterregistreres ikke. Ulåst tid telles også uten tastatur- eller museaktivitet.
+- Med `usage` belaster serveren de målte intervallene én gang og legger ikke også til mottaksintervaller. Forsinket bruk registreres på faktisk dato/time etter serverens tidssone. Ulåst tid telles også uten tastatur- eller museaktivitet.
+- Uten `usage` beholdes eldre beregning fra serverens mottakstidspunkter: første rapport starter målingen, og neste rapport belaster intervallet hvis forrige status var ulåst og oppholdet er høyst 63 sekunder. Slike eldre rapporter etterregistrerer ikke tid fra lengre nettbrudd.
 - `heartbeat_id` identifiserer en rapport. Samme rapport kan prøves igjen med samme ID; endret låsestatus må ha ny ID.
 - For eldre klienter godtas `session_state` (`active`, `idle`, `locked`). `locked` har forrang når feltet finnes. Manglende status regnes som ulåst.
 - Eldre felter `active_seconds`, `activity_date` og `reported_at` ignoreres i tidsberegningen. Intervaller fordeles over døgn og timer etter serverens tidssone.
+
+### Bekreftet lokal bruk fra klient 2026.10.28.2
+
+`usage.id` tilhører en uforanderlig forbruksrapport og beholdes ved gjentatte sendinger, også når en ny låsestatus gir ny `heartbeat_id`. Intervallene skal være ordnet uten innbyrdes overlapp, ha positiv varighet på høyst én time og ikke ende mer enn fem minutter foran serverens mottakstid. Høyst 32 intervaller sendes om gangen. Klienten justerer sin klokke mot serveren og lagrer rapporten før sending.
+
+`remaining_seconds`, `quota_seconds` og `policy_date` er øyeblikksbildet da forbruksrapporten ble laget. Serveren tar med de målte intervallene og beregner felles restkvote fra gjeldende regler og alle enheters forbruk. Den overskriver ikke felleskvoten med én enhets resttall. En eldre tilstandsfil kan sende `legacy:true` med tom intervalliste for å etablere et minste kjent forbruk fra gammel kvote og restkvote; se begrensningene i [steg 4-status](STEP_4.md).
+
+Et vellykket svar inneholder `usage_ack` lik `usage.id`, samt `timezone` for kalenderberegningen. Dette bekrefter at forbruket er lagret, selv om handlingen er `lock`. Feil ved lagring gir ingen slik bekreftelse. Samme ID med endret innhold avvises. Ny klient godtar ikke svaret som ny autoritet hvis bekreftelsen mangler eller er feil. Bruk som ble registrert etter rapportens øyeblikksbilde forblir utestående og reduserer lokal restkvote til det også er bekreftet.
 
 Eksempel på tillatelse:
 
@@ -52,17 +67,19 @@ Eksempel på tillatelse:
 {
   "action":"allow",
   "message":"ok",
-  "daily_total_seconds":1800,
+  "daily_total_seconds":900,
   "policy_version":3,
-  "remaining_seconds":1800,
-  "quota_seconds":3600,
+  "remaining_seconds":900,
+  "quota_seconds":1800,
   "unlimited":false,
   "lease_seconds":90,
   "reason":"allowed",
-  "server_time":"2026-09-18T15:00:00+02:00",
-  "policy_date":"2026-09-18",
+  "server_time":"2026-10-28T11:10:00+01:00",
+  "policy_date":"2026-10-28",
+  "usage_ack":"unik-id-for-forbruksrapporten",
+  "timezone":"Europe/Oslo",
   "next_allowed_at":"0001-01-01T00:00:00Z",
-  "next_transition_at":"2026-09-19T00:00:00+02:00",
+  "next_transition_at":"2026-10-29T00:00:00+01:00",
   "next_lock_at":"0001-01-01T00:00:00Z"
 }
 ```
@@ -75,7 +92,7 @@ Fra klientversjon **2026.10.28.1** kontrollerer klienten:
 2. At lokal restkvote gjenstår når dagskvoten er begrenset.
 3. At en kjent stengetid i `next_lock_at` ikke er passert.
 
-Ved kontaktfeil beholdes beslutning, restkvote og stengetid. `lease_seconds` og `next_transition_at` sendes fortsatt i eksisterende svarformat, men utløp av den korte leasen stenger ikke alene denne klientversjonen. Full ukeplan og avstemming av lokalt offline-forbruk er ennå ikke implementert; se [steg 4-status](STEP_4.md). Eldre klienter kan ha annen feiloppførsel.
+Ved kontaktfeil beholdes beslutning, restkvote og stengetid. `lease_seconds` og `next_transition_at` sendes fortsatt i eksisterende svarformat, men utløp av den korte leasen stenger ikke alene denne klientversjonen. Avstemming er innført fra `2026.10.28.2`; full lagret ukeplan og ny dagskvote uten nett gjenstår. Se [steg 4-status](STEP_4.md). Eldre klienter kan ha annen feiloppførsel.
 
 Ukjent tidspunkt angis med Go sin nulltid (`0001-01-01T00:00:00Z`). Ikke bruk denne som en faktisk planlagt åpning. Ved `lock` er tillatelsen null sekunder; `next_allowed_at` kan forklare neste planlagte åpning. Manuell pause har ingen automatisk åpning.
 

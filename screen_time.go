@@ -6,6 +6,8 @@ import (
 )
 
 type heartbeat struct {
+	Usage                   *usageBatch `json:"usage,omitempty"`
+	accountingLocation      *time.Location
 	ReportedActivityPresent bool      `json:"-"`
 	ClientVersion           string    `json:"client_version,omitempty"`
 	Locked                  *bool     `json:"locked,omitempty"`

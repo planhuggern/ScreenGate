@@ -97,7 +97,7 @@ Logg: `C:\Program Files\ScreenGate\update.log`. En mislykket sjekk prøves igjen
 
 **HTTP 429:** Vent minst ett minutt før nytt forsøk. Beskyttelsen brukes for innlogging og koblingskoder.
 
-**Uventet låsing etter nettbrudd:** Fra klientversjon `2026.10.28.1` skal den korte 90-sekundersfristen ikke alene stenge tilgangen. Kontroller lokal restkvote, siste låsebeslutning, kjent stengetid og klientloggen. `legacy_offline_state` betyr at en eldre klient lagret en feiltilstand som mistet siste beslutning; denne krever en ny serverbeslutning før tilgang gis. Klienten forsøker kontakt også mens Windows er låst. Full offline-avstemming og lokal ukeplan gjenstår; se [steg 4-status](STEP_4.md).
+**Uventet låsing etter nettbrudd:** Fra klientversjon `2026.10.28.1` skal den korte 90-sekundersfristen ikke alene stenge tilgangen. Kontroller lokal restkvote, siste låsebeslutning, kjent stengetid og klientloggen. `legacy_offline_state` betyr at en eldre klient lagret en feiltilstand som mistet siste beslutning; denne krever en ny serverbeslutning før tilgang gis. Klienten forsøker kontakt også mens Windows er låst. Avstemming er innført fra klient 2026.10.28.2 med tilhørende serveroppdatering. Lokal ukeplan gjenstår; se [steg 4-status](STEP_4.md).
 
 ## Avgrensning for verifisering
 

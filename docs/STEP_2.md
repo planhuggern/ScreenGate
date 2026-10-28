@@ -2,7 +2,7 @@
 
 Status: **fullført**. Grunnlag: [tilstandsrapporten](STATE_REPORT.md) og [vedtatte regler](BEHAVIOR_RULES.md). Dette steget dokumenterer dagens oppførsel; det innfører ikke de nye reglene.
 
-Historisk testgrunnlag: Beskrivelsen nedenfor gjengir oppførselen da steg 2 ble utført. [Steg 4, del 1](STEP_4.md) har senere rettet fri tilgang ved kontaktfeil, oppbrukt offline-kvote, nøkkelavvisning og forskjellig håndheving før/etter omstart. De berørte testene heter nå `TestLoop...` og kontrollerer vedtatt oppførsel. Gjenoppkobling uten full avstemming er fortsatt et kjent avvik.
+Historisk testgrunnlag: Beskrivelsen nedenfor gjengir oppførselen da steg 2 ble utført. [Steg 4](STEP_4.md) har senere rettet fri tilgang ved kontaktfeil, oppbrukt offline-kvote, nøkkelavvisning, forskjellig håndheving før/etter omstart og avstemming ved gjenoppkobling. De berørte testene heter nå `TestLoop...` og kontrollerer vedtatt oppførsel.
 
 ## Endring gjort for å kunne teste
 

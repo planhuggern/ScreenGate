@@ -9,6 +9,8 @@ import (
 var errInvalidHeartbeat = errors.New("invalid heartbeat")
 
 type heartbeatResult struct {
+	UsageAck             string
+	Timezone             string
 	CreditedMilliseconds int64
 	Duplicate            bool
 	Action               string
@@ -45,6 +47,10 @@ func (s *screenTimeService) recordHeartbeat(h heartbeat) (heartbeatResult, error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	h.ReportedAt = s.now().In(s.location)
+	h.accountingLocation = s.location
+	if err := validateUsage(h); err != nil {
+		return heartbeatResult{}, err
+	}
 	date := h.ReportedAt.Format("2006-01-02")
 	credit, duplicate, err := s.repository.addHeartbeatObserved(h)
 	if err != nil {
@@ -60,7 +66,13 @@ func (s *screenTimeService) recordHeartbeat(h heartbeat) (heartbeatResult, error
 		return heartbeatResult{}, err
 	}
 	decision := evaluatePolicy(policy, dailyTotal, h.ReportedAt)
+	ack := ""
+	if h.Usage != nil {
+		ack = h.Usage.ID
+	}
 	return heartbeatResult{
+		UsageAck:             ack,
+		Timezone:             s.location.String(),
 		CreditedMilliseconds: credit,
 		Duplicate:            duplicate,
 		Action:               decision.Action,

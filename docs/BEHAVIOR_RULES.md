@@ -30,11 +30,11 @@ Valg C vedtar observasjon som første tiltak. Det vedtar ikke dagens tolkning av
 ## 2. Tidsberegning og lokal restkvote
 
 - Heartbeat sendes hvert 30. sekund og ved endret øktstatus, også mens Windows er låst.
-- Ved kontakt er serverens regnskap autoritativt. Dagens serverberegning bruker egne mottakstidspunkter, og første nye rapport starter målingen uten belastning. Denne beregningen må samordnes med klientens registrerte forbruk ved gjenoppkobling.
-- Dagens serverberegning belaster et positivt intervall på høyst 63 sekunder hvis forrige rapporterte øktstatus var ulåst. En låserapport avslutter intervallet; en opplåsingsrapport starter et nytt.
+- Ved kontakt er serverens regnskap autoritativt. For eldre klienter bruker serveren mottakstidspunkter. Nye klienter sender målte intervaller som serveren bekrefter og tar med én gang, også ved gjenoppkobling.
+- For eldre klienter belaster serverberegningen et positivt intervall på høyst 63 sekunder hvis forrige rapporterte øktstatus var ulåst. En låserapport avslutter intervallet; en opplåsingsrapport starter et nytt.
 - Ulåst video og bruk uten tastatur- eller museaktivitet teller. Inaktivitet alene fritar ikke for belastning.
 - Klienten måler ulåst bruk lokalt og reduserer sist kjente restkvote selv uten kontakt. Bekreftet låst økt og søvn skal ikke bruke lokal kvote. Måleoppførsel ved avlesingsfeil omfattes av den uttrykkelige avgrensningen i valg C; ingen ny belastningsregel er vedtatt for dette.
-- Dagens server utelater intervaller over 63 sekunder. Denne grensen skal ikke stoppe klientens lokale opptelling mens barnet bruker PC-en uten nett. Det tidligere forslaget om ingen etterregistrering er ikke lenger et tilstrekkelig regelgrunnlag: lokalt forbruk må avstemmes ved gjenopprettet kontakt.
+- For eldre klienter utelater serveren mottaksintervaller over 63 sekunder. Denne grensen skal ikke stoppe klientens lokale opptelling mens barnet bruker PC-en uten nett. Det tidligere forslaget om ingen etterregistrering er ikke lenger et tilstrekkelig regelgrunnlag: lokalt forbruk må avstemmes ved gjenopprettet kontakt.
 - Forbruk summeres per bruker. To PC-er i samtidig bruk gir belastning fra begge. Kalenderdager følger serverens konfigurerte tidssone.
 - Samme rapport-ID belastes bare én gang. Endret øktstatus får ny ID. Et duplikat kan få en ny serverbeslutning basert på gjeldende regler, men gir ikke nytt bruksintervall.
 
@@ -109,7 +109,7 @@ Eksemplene bruker de avklarte reglene i låsemodus, med mindre annet er oppgitt.
 | Første rapport mottas 12:00:00 med ulåst økt. Neste nye rapport mottas 12:00:30. | Første rapport belaster 0 sekunder. Neste belaster 30 sekunder. |
 | Ulåst rapport 12:00:00, låst rapport 12:00:10, fortsatt låst 12:00:40. | Henholdsvis 0, 10 og 0 sekunder ny belastning. |
 | Låst rapport 12:00:00, ulåst rapport 12:00:10, fortsatt ulåst 12:00:40. | Henholdsvis 0, 0 og 30 sekunder ny belastning. |
-| Ny rapport kommer 64 sekunder etter forrige. | Dagens serverberegning utelater intervallet. Lokalt målt forbruk beholdes for avstemming; en forsinket rapport gir ikke gratis lokal bruk. |
+| Ny rapport kommer 64 sekunder etter forrige. | Eldre klienters mottaksberegning utelater intervallet. Nye klienters lokalt målte forbruk avstemmes; en forsinket rapport gir ikke gratis lokal bruk. |
 | En rapport prøves igjen med samme ID. | Ingen ny belastning. Serveren vurderer dagens regler på nytt. |
 | Klienten har 25 minutter igjen og mister nettverket. Barnet bruker PC-en ulåst i 10 minutter. | Lokal restkvote er 15 minutter. Ingen låsing bare fordi 90 sekunder er gått. |
 | Samme utgangspunkt; barnet bruker alle de 25 minuttene uten nettverk. | Restkvoten er null og klienten forsøker å låse. |
@@ -137,4 +137,4 @@ Steg 1 er fullført som beslutningsgrunnlag, med den uttrykkelige avgrensningen 
 
 Steg 2 er fullført: [dagens klientflyt og dokumenterte avvik](STEP_2.md) beskriver testene, inkludert dagens fallback ved avlesingsfeil. De vedtatte reglene er ikke innført gjennom dette testarbeidet. Lokal kvotelagring, avstemming, rapportering av avlesingsfeil og overgang fra gamle klientfiler må løses i senere steg; dette dokumentet velger ikke implementasjonen.
 
-Senere implementeringsstatus: [Steg 4, del 1](STEP_4.md) innfører lokal videreføring av siste restkvote, bevarer kjent stengetid og stenging ved kontaktfeil, og stenger uten tidligere gyldig beslutning eller ved HTTP 401/403. Full avstemming ved gjenoppkobling, lagret ukeplan og observasjon av avlesingsfeil gjenstår. Reglene ovenfor beskriver fortsatt sluttmålet, ikke at alt er implementert.
+Senere implementeringsstatus: [Steg 4](STEP_4.md) innfører lokal videreføring av siste restkvote, bevarer kjent stengetid og stenging ved kontaktfeil, og stenger uten tidligere gyldig beslutning eller ved HTTP 401/403. Del 2 innfører bekreftet avstemming ved gjenoppkobling. Lagret ukeplan og observasjon av avlesingsfeil gjenstår. Reglene ovenfor beskriver fortsatt sluttmålet, ikke at alt er implementert.

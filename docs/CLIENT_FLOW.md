@@ -79,6 +79,7 @@ Hvis en rapport allerede venter på svar, starter ikke `sendHeartbeat` enda en p
 | [protocol.go](../cmd/client/protocol.go) | Lager HTTP-forespørsler og kontrollerer serversvar. |
 | [state.go](../cmd/client/state.go) | Holder lokal resttid, siste serverbeslutning og ventende rapport, og bestemmer hvordan de endres. |
 | [state_store.go](../cmd/client/state_store.go) | Leser, kontrollerer, signerer og skriver tilstandsfilen i eksisterende format. |
+| [usage.go](../cmd/client/usage.go) | Samler målt bruk, beholder forbruksrapporten til bekreftelse og beregner utestående bruk per dag. |
 | [activity.go](../cmd/client/activity.go) | Måler lokale sekunder mellom sjekkene. |
 | [session_windows.go](../cmd/client/session_windows.go) | Leser Windows-økten gjennom Windows-API-er. |
 | [enforcement.go](../cmd/client/enforcement.go) | Utfører låseforsøk eller registrerer at den ville ha låst i testmodus. |
@@ -92,7 +93,9 @@ Nederst i `runtime.go` ligger metodene for valgfri programsporing. De endrer ikk
 
 Tre avgrensede deler av steg 3 er gjennomført. Først ble den store løkkefunksjonen delt i navngitte metoder. Deretter ble oppstartsinnstillingene samlet i `config.go`. Til slutt ble lesing, kontroll og skriving av tilstandsfilen skilt ut i `state_store.go`, mens tilstandsreglene ble igjen i `state.go`. Hovedprogrammet viser oppstartsrekkefølgen, og hendelsesløkken viser kjørerekkefølgen. Testene fra steg 2 er beholdt uten endringer.
 
-Steg 3 var strukturendringer med testene fra [steg 2-rapporten](STEP_2.md) som grunnlag. Senere er første regelendring innført i [steg 4, del 1](STEP_4.md): `handleHeartbeatError` bevarer nå siste beslutning ved vanlige kontaktfeil, mens `allowed` håndhever lokal restkvote og kjent stengetid. `ServerUnavailable` holder kontaktfeil adskilt fra om en tidligere gyldig beslutning finnes. Testene for de rettede avvikene er oppdatert; resten av de [vedtatte reglene](BEHAVIOR_RULES.md) innføres videre i egne endringer.
+Steg 3 var strukturendringer med testene fra [steg 2-rapporten](STEP_2.md) som grunnlag. Senere er regelendringer innført i [steg 4](STEP_4.md): `handleHeartbeatError` bevarer siste beslutning ved kontaktfeil, og `allowed` håndhever lokal restkvote og kjent stengetid. `ServerUnavailable` holder kontaktfeil adskilt fra om en tidligere gyldig beslutning finnes. Testene for de rettede avvikene er oppdatert; resten av de [vedtatte reglene](BEHAVIOR_RULES.md) innføres videre i egne endringer.
+
+Fra `2026.10.28.2` går lokalt målte intervaller også gjennom `usage.go`. `prepareUsage` lager et øyeblikksbilde med en stabil ID. `prepareReport` legger dette ved heartbeaten. `protocol.go` krever at serveren bekrefter samme ID, og `apply` fjerner først da det bekreftede forbruket. Nyere bruk forblir i køen og trekkes fortsatt lokalt. Denne køen og rapporten lagres sammen med resten av tilstanden, slik at et mistet svar eller en omstart ikke mister data. Ved gjenoppkobling sender løkken resten av den oppsamlede køen før den går tilbake til vanlig rapportrytme.
 
 Innstillingskildenes prioritet og valget av testmodus/låsemodus kontrolleres også i `config_test.go`, med vanlige filer og kommandolinjeargumenter. Testene simulerer ingen Windows-låsing.
 

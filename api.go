@@ -9,6 +9,8 @@ import (
 )
 
 type response struct {
+	UsageAck          string    `json:"usage_ack,omitempty"`
+	Timezone          string    `json:"timezone,omitempty"`
 	Action            string    `json:"action"`
 	Message           string    `json:"message"`
 	DailyTotalSeconds int       `json:"daily_total_seconds"`
@@ -102,7 +104,7 @@ func (a *application) heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	status, monitorReason = http.StatusOK, result.Reason
 	a.recordDeviceSeen(r, result.ReportedAt)
-	writeJSON(w, http.StatusOK, response{Action: result.Action, Message: "ok", DailyTotalSeconds: result.DailyTotalSeconds, PolicyVersion: result.PolicyVersion, RemainingSeconds: result.RemainingSeconds, QuotaSeconds: result.QuotaSeconds, Unlimited: result.Unlimited, LeaseSeconds: result.LeaseSeconds, Reason: result.Reason, ServerTime: result.ServerTime, PolicyDate: result.PolicyDate, NextAllowedAt: result.NextAllowedAt, NextTransitionAt: result.NextTransitionAt, NextLockAt: result.NextLockAt})
+	writeJSON(w, http.StatusOK, response{UsageAck: result.UsageAck, Timezone: result.Timezone, Action: result.Action, Message: "ok", DailyTotalSeconds: result.DailyTotalSeconds, PolicyVersion: result.PolicyVersion, RemainingSeconds: result.RemainingSeconds, QuotaSeconds: result.QuotaSeconds, Unlimited: result.Unlimited, LeaseSeconds: result.LeaseSeconds, Reason: result.Reason, ServerTime: result.ServerTime, PolicyDate: result.PolicyDate, NextAllowedAt: result.NextAllowedAt, NextTransitionAt: result.NextTransitionAt, NextLockAt: result.NextLockAt})
 }
 
 func (a *application) healthHandler(w http.ResponseWriter, r *http.Request) {

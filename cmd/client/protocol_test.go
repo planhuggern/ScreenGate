@@ -108,6 +108,38 @@ func TestValidateEndpoint(t *testing.T) {
 	}
 }
 
+func TestUsageProtocolRequiresMatchingAcknowledgement(t *testing.T) {
+	for _, tt := range []struct {
+		name, acknowledgement, date string
+		wantError                   bool
+	}{
+		{"missing acknowledgement", "", "2026-10-28", true},
+		{"different batch", "other-batch", "2026-10-28", true},
+		{"missing policy date", "usage-batch", "", true},
+		{"accepted batch", "usage-batch", "2026-10-28", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				usage, ok := body["usage"].(map[string]any)
+				if !ok || usage["id"] != "usage-batch" || usage["remaining_seconds"] != float64(95) {
+					t.Error("usage snapshot was not sent")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(response{Action: "allow", UsageAck: tt.acknowledgement, PolicyDate: tt.date, QuotaSeconds: 120, RemainingSeconds: 95, LeaseSeconds: 90})
+			}))
+			defer server.Close()
+			_, err := postHeartbeat(context.Background(), newHTTPClient(), server.URL, "secret", heartbeat{Usage: &usageBatch{ID: "usage-batch", RemainingSeconds: 95}})
+			if (err != nil) != tt.wantError {
+				t.Fatalf("error=%v wantError=%t", err, tt.wantError)
+			}
+		})
+	}
+}
+
 func TestHeartbeatSendsLockedState(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any

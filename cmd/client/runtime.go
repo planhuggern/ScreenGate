@@ -41,6 +41,7 @@ type clientLoop struct {
 
 	heartbeatInFlight bool
 	heartbeatResults  chan heartbeatResult
+	usageSyncUntil    time.Time
 
 	// Optional foreground-app reports are independent of quota accounting.
 	tracker       focusTracker
@@ -52,6 +53,7 @@ type clientLoop struct {
 func runClient(ctx context.Context, config clientConfig, state clientState, guard enforcement, runtime clientRuntime) {
 	client := clientLoop{
 		ctx: ctx, config: config, runtime: runtime, state: state, guard: guard,
+		usageSyncUntil:   state.LastUsageEnd,
 		heartbeatResults: make(chan heartbeatResult, 1),
 		eventResults:     make(chan error, 1),
 	}
@@ -179,15 +181,20 @@ func (c *clientLoop) sendHeartbeat() {
 func (c *clientLoop) handleHeartbeat(result heartbeatResult) {
 	c.heartbeatInFlight = false
 	now := c.runtime.now()
+	recovering := c.state.ServerUnavailable
 	if result.err != nil {
 		c.handleHeartbeatError(result.err)
 	} else {
 		c.applyServerResponse(result, now)
+		if recovering {
+			c.usageSyncUntil = c.state.LastUsageEnd
+		}
 	}
 	c.persist()
 	c.enforce(now)
 
-	if result.sessionState != c.sessionState {
+	backlog := len(c.state.UnreportedUsage) > 0 && c.state.UnreportedUsage[0].Start.Before(c.usageSyncUntil)
+	if result.sessionState != c.sessionState || (result.err == nil && backlog) {
 		c.sendHeartbeat()
 	}
 }

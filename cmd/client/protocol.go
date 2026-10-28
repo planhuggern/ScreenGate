@@ -14,19 +14,22 @@ import (
 )
 
 // Bump for each client release, including fixes distributed by the updater.
-const clientVersion = "2026.10.28.1"
+const clientVersion = "2026.10.28.2"
 
 type heartbeat struct {
-	DeviceID      string    `json:"device_id"`
-	User          string    `json:"user"`
-	HeartbeatID   string    `json:"heartbeat_id"`
-	ActivityDate  string    `json:"activity_date,omitempty"`
-	SessionState  string    `json:"session_state"`
-	ActiveSeconds int       `json:"active_seconds"`
-	ReportedAt    time.Time `json:"reported_at"`
+	Usage         *usageBatch `json:"usage,omitempty"`
+	DeviceID      string      `json:"device_id"`
+	User          string      `json:"user"`
+	HeartbeatID   string      `json:"heartbeat_id"`
+	ActivityDate  string      `json:"activity_date,omitempty"`
+	SessionState  string      `json:"session_state"`
+	ActiveSeconds int         `json:"active_seconds"`
+	ReportedAt    time.Time   `json:"reported_at"`
 }
 
 type response struct {
+	UsageAck         string    `json:"usage_ack,omitempty"`
+	Timezone         string    `json:"timezone,omitempty"`
 	Action           string    `json:"action"`
 	PolicyVersion    int       `json:"policy_version"`
 	RemainingSeconds int       `json:"remaining_seconds"`
@@ -104,12 +107,13 @@ func postJSON(ctx context.Context, client *http.Client, endpoint, token string, 
 func postHeartbeat(ctx context.Context, client *http.Client, endpoint, token string, report heartbeat) (response, error) {
 	// Usage is computed by the server. Local estimates remain in saved state only.
 	payload := struct {
-		DeviceID      string `json:"device_id"`
-		User          string `json:"user"`
-		HeartbeatID   string `json:"heartbeat_id"`
-		Locked        bool   `json:"locked"`
-		ClientVersion string `json:"client_version"`
-	}{report.DeviceID, report.User, report.HeartbeatID, report.SessionState == "locked", clientVersion}
+		DeviceID      string      `json:"device_id"`
+		User          string      `json:"user"`
+		HeartbeatID   string      `json:"heartbeat_id"`
+		Locked        bool        `json:"locked"`
+		ClientVersion string      `json:"client_version"`
+		Usage         *usageBatch `json:"usage,omitempty"`
+	}{report.DeviceID, report.User, report.HeartbeatID, report.SessionState == "locked", clientVersion, report.Usage}
 	httpResponse, err := postJSON(ctx, client, endpoint, token, payload)
 	if err != nil {
 		return response{}, err
@@ -136,6 +140,14 @@ func postHeartbeat(ctx context.Context, client *http.Client, endpoint, token str
 	}
 	if result.Action != "allow" && result.Action != "lock" {
 		return response{}, errors.New("unknown server action")
+	}
+	if report.Usage != nil && result.UsageAck != report.Usage.ID {
+		return response{}, errors.New("server did not acknowledge the usage batch")
+	}
+	if report.Usage != nil {
+		if _, err := time.Parse("2006-01-02", result.PolicyDate); err != nil {
+			return response{}, errors.New("usage acknowledgement has no valid policy date")
+		}
 	}
 	if result.RemainingSeconds < 0 || result.QuotaSeconds < 0 || result.PolicyVersion < 0 || result.LeaseSeconds < 0 {
 		return response{}, errors.New("server returned a negative authorization value")

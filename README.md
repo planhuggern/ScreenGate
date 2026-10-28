@@ -13,7 +13,7 @@ ScreenGate styrer skjermtid på Windows-PC-er fra en liten Go-server hjemme. For
 - Engangskoder for tilkobling av Windows-brukere. Nye brukere starter med én time per dag.
 - Varsler på Windows før tiden er brukt opp, og lokal låsing når tillatelsen utløper.
 - Varig klienttilstand og idempotente rapporter: omstart og tapte svar skal ikke gi ny kvote eller dobbelttelle aktivitet.
-- Lokal videreføring av siste restkvote ved nettbrudd, med håndheving av kjent stengetid. Avstemming ved gjenoppkobling er under arbeid; se [status for regelendringene](docs/STEP_4.md).
+- Lokal videreføring av siste restkvote ved nettbrudd, med håndheving av kjent stengetid og bekreftet avstemming i klient 2026.10.28.2; se [status for regelendringene](docs/STEP_4.md).
 - Konsistent SQLite-sikkerhetskopi som kan lastes ned fra foreldreoversikten.
 
 Forsiden viser ingen navn eller aktivitetsdata. Registrering av programmer er avslått som standard. Serveren lagrer ikke programnavn, vindustitler, innhold eller nettleserhistorikk.
@@ -100,11 +100,11 @@ Gult markerer mulige avvik, avviste rapporter og rapportopphold over 63 sekunder
 
 Klienten måler lokal bruk av en ulåst Windows-økt. En bekreftet låst økt og søvn bruker ikke lokal kvote. Video og annen passiv skjermbruk teller også. `-idle-timeout 5m` gjelder valgfri programsporing; ulåst tid teller fortsatt mot kvoten.
 
-Klienten rapporterer omtrent hvert 30. sekund og ved endring av øktstatus. Serveren beregner fortsatt belastning fra egne mottakstidspunkter: et intervall på høyst 63 sekunder teller hvis forrige rapport var ulåst. Hver rapport har en unik ID, slik at et tapt svar kan prøves igjen uten dobbel belastning.
+Klienten rapporterer omtrent hvert 30. sekund og ved endring av øktstatus. Fra klientversjon `2026.10.28.2` sender den målte bruksintervaller og restkvote, som serveren bekrefter før klienten godtar den nye kvoten. Intervallene belastes bare én gang, også ved tapte svar eller endret låsestatus. Serveren legger ikke også til tid fra mottaksintervallene for disse klientene.
 
-Tiden summeres per bruker. **Samtidig bruk av to PC-er bruker dobbelt så mange kvotesekunder.** Gamle rapporter fra før oppgraderingen beholder den tidligere beregningen basert på sammenhengende serverregistrerte intervaller på maksimalt 63 sekunder.
+Tiden summeres per bruker. **Samtidig bruk av to PC-er bruker dobbelt så mange kvotesekunder.** Eldre klienter uten bekreftet lokal rapportering beholder beregningen fra serverens mottakstidspunkter: høyst 63 sekunder mellom rapportene, med ulåst status ved forrige rapport.
 
-Dagsgrensen på serveren følger `SCREENGATE_TIMEZONE`, som er `Europe/Oslo` som standard. Midnatt og overgangen mellom sommer- og vintertid håndteres etter den valgte tidssonen. Lokal telling uten nett er innført, men offline-forbruk blir ennå ikke avstemt mot serveren ved gjenoppkobling. Et serversvar kan derfor fortsatt gi tilbake lokalt brukt tid; dette er neste del av arbeidet.
+Dagsgrensen på serveren følger `SCREENGATE_TIMEZONE`, som er `Europe/Oslo` som standard. Midnatt og overgangen mellom sommer- og vintertid håndteres etter den valgte tidssonen. Forsinkede bruksintervaller fra nye klienter registreres på datoen og timen de gjelder. Bruk som ennå ikke er bekreftet av serveren, fortsetter å redusere lokal restkvote mens klienten avstemmer.
 
 ### Regler og prioritet
 
@@ -116,7 +116,7 @@ En dagsgrense på `0` betyr ubegrenset kvote; pause og tidsplan gjelder likevel.
 
 Et tidsrom som `20:00–02:00` starter på den valgte ukedagen og fortsetter neste natt. En eksplisitt skjermfri dag stenger også for en slik videreføring. Kvoten og bonusen nullstilles ved kalenderdagens midnatt.
 
-Endringer når en tilkoblet klient ved neste rapport, vanligvis innen 30 sekunder. Fra klientversjon **2026.10.28.1** videreføres siste gyldige restkvote ved nettbrudd: ulåst bruk trekkes lokalt, og oppbrukt kvote eller en allerede kjent stengetid fører til låseforsøk i låsemodus. Den tidligere 90-sekundersfristen stenger ikke alene. Omstart fyller ikke opp kvoten, og uten tidligere gyldig beslutning holdes tilgangen stengt. Full lagret ukeplan og avstemming av offline-forbruk ved gjenoppkobling gjenstår; se [status og begrensninger](docs/STEP_4.md).
+Endringer når en tilkoblet klient ved neste rapport, vanligvis innen 30 sekunder. Fra klientversjon **2026.10.28.1** videreføres siste gyldige restkvote ved nettbrudd: ulåst bruk trekkes lokalt, og oppbrukt kvote eller en allerede kjent stengetid fører til låseforsøk i låsemodus. Den tidligere 90-sekundersfristen stenger ikke alene. Omstart fyller ikke opp kvoten, og uten tidligere gyldig beslutning holdes tilgangen stengt. Fra **2026.10.28.2** avstemmes også forbruket ved gjenoppkobling. Full lagret ukeplan og ny dagskvote uten nett gjenstår; se [status og begrensninger](docs/STEP_4.md).
 
 ## Hva håndhevingen beskytter mot
 

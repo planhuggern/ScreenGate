@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"time"
 )
 
@@ -11,9 +9,17 @@ const maxLeaseSeconds = 120
 // The last server decision and locally consumed quota survive restarts. A pending
 // report keeps its ID when a response is lost and the report is retried.
 type clientState struct {
-	Identity string `json:"identity"`
-	Action   string `json:"action"`
-	Reason   string `json:"reason"`
+	UsageStarted      bool            `json:"usage_started,omitempty"`
+	PendingUsage      *usageBatch     `json:"pending_usage,omitempty"`
+	UnreportedUsage   []usageInterval `json:"unreported_usage,omitempty"`
+	LastUsageEnd      time.Time       `json:"last_usage_end,omitzero"`
+	ServerClockOffset time.Duration   `json:"server_clock_offset,omitempty"`
+	UsageClockKnown   bool            `json:"usage_clock_known,omitempty"`
+	PolicyTimezone    string          `json:"policy_timezone,omitempty"`
+	PolicyUTCOffset   int             `json:"policy_utc_offset,omitempty"`
+	Identity          string          `json:"identity"`
+	Action            string          `json:"action"`
+	Reason            string          `json:"reason"`
 	// Connection failure and the presence of a prior decision are independent.
 	ServerUnavailable bool       `json:"server_unavailable,omitempty"`
 	ServerContacted   bool       `json:"server_contacted"`
@@ -75,6 +81,7 @@ func (s *clientState) account(seconds int, now time.Time) {
 		s.invalidate("clock_changed")
 	}
 	if seconds > 0 {
+		s.recordUsage(seconds, now)
 		if s.PendingSeconds == 0 {
 			s.PendingDate = s.PolicyDate
 		}
@@ -87,13 +94,16 @@ func (s *clientState) account(seconds int, now time.Time) {
 }
 
 func (s *clientState) prepareReport(deviceID, username, sessionState string, now time.Time) (heartbeat, error) {
+	if err := s.prepareUsage(); err != nil {
+		return heartbeat{}, err
+	}
 	if s.Report == nil || s.Report.SessionState != sessionState {
-		var random [16]byte
-		if _, err := rand.Read(random[:]); err != nil {
+		id, err := newReportID()
+		if err != nil {
 			return heartbeat{}, err
 		}
 		s.Report = &heartbeat{
-			DeviceID: deviceID, User: username, HeartbeatID: hex.EncodeToString(random[:]),
+			DeviceID: deviceID, User: username, HeartbeatID: id, Usage: s.PendingUsage,
 			SessionState: sessionState, ActivityDate: s.PendingDate, ActiveSeconds: s.PendingSeconds, ReportedAt: now,
 		}
 		s.PendingSeconds = 0
@@ -105,6 +115,10 @@ func (s *clientState) prepareReport(deviceID, username, sessionState string, now
 }
 
 func (s *clientState) apply(result response, sentAt, receivedAt time.Time) {
+	s.updateUsageClock(result, sentAt)
+	if s.PendingUsage != nil && result.UsageAck == s.PendingUsage.ID {
+		s.PendingUsage = nil
+	}
 	s.Report = nil
 	s.ServerContacted = true
 	s.ServerUnavailable = false
@@ -114,7 +128,9 @@ func (s *clientState) apply(result response, sentAt, receivedAt time.Time) {
 	s.PolicyDate = result.PolicyDate
 	s.QuotaSeconds = result.QuotaSeconds
 	s.RemainingSeconds = result.RemainingSeconds
-	if s.PendingDate == "" || s.PendingDate == result.PolicyDate {
+	if result.UsageAck != "" {
+		s.RemainingSeconds = max(0, s.RemainingSeconds-s.unacknowledgedUsage(result.PolicyDate))
+	} else if s.PendingDate == "" || s.PendingDate == result.PolicyDate {
 		s.RemainingSeconds = max(0, s.RemainingSeconds-s.PendingSeconds)
 	}
 	s.UpdatedAt = receivedAt

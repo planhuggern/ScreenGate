@@ -46,6 +46,18 @@ func (s loopTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		if result.err != nil {
 			return nil, result.err
 		}
+		// Successful scripted replies emulate the server's batch acknowledgement.
+		// Missing/mismatched acknowledgements are tested against real HTTP in
+		// protocol_test.go, without this convenience for loop scenarios.
+		if result.status == 200 {
+			var body map[string]any
+			usage, hasUsage := payload["usage"].(map[string]any)
+			if hasUsage && json.Unmarshal([]byte(result.body), &body) == nil && (body["action"] == "allow" || body["action"] == "lock") {
+				body["usage_ack"] = usage["id"]
+				encoded, _ := json.Marshal(body)
+				result.body = string(encoded)
+			}
+		}
 		return &http.Response{StatusCode: result.status, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(result.body))}, nil
 	case <-r.Context().Done():
 		return nil, r.Context().Err()
@@ -261,7 +273,7 @@ func TestLoopOfflineExhaustionLocks(t *testing.T) {
 	}
 }
 
-func TestCurrentLoopReconnectCanReturnLocallyUsedTime(t *testing.T) {
+func TestLoopReconnectReconcilesBeforeAcceptingServerQuota(t *testing.T) {
 	h := startTestClient(t, clientState{}, testMoment(), "", true)
 	h.request().reply <- allowReply(100)
 	h.await(func(s clientState) bool { return s.ServerContacted && s.Report == nil })
@@ -281,10 +293,13 @@ func TestCurrentLoopReconnectCanReturnLocallyUsedTime(t *testing.T) {
 	if retry.payload["heartbeat_id"] != failed.payload["heartbeat_id"] || retry.payload["active_seconds"] != nil {
 		t.Fatalf("unexpected wire report: %+v", retry.payload)
 	}
-	retry.reply <- allowReply(100)
-	after := h.await(func(s clientState) bool { return s.ServerContacted && s.Report == nil })
-	if before.RemainingSeconds != 90 || after.RemainingSeconds != 95 {
-		t.Fatalf("expected current reconciliation gap: before=%d after=%d", before.RemainingSeconds, after.RemainingSeconds)
+	retry.reply <- allowReply(95) // The server has now charged the first five seconds.
+	h.await(func(s clientState) bool { return !s.ServerUnavailable && s.Report == nil && s.RemainingSeconds == 90 })
+	queued := h.request() // Recovery immediately drains usage accrued after the first snapshot.
+	queued.reply <- allowReply(90)
+	after := h.await(func(s clientState) bool { return s.Report == nil && s.PendingUsage == nil && s.RemainingSeconds == 90 })
+	if before.RemainingSeconds != 90 || after.RemainingSeconds != 90 || len(after.UnreportedUsage) != 0 {
+		t.Fatalf("reconciliation returned locally consumed time: before=%d after=%d", before.RemainingSeconds, after.RemainingSeconds)
 	}
 }
 
@@ -370,7 +385,7 @@ func TestCurrentLoopSendsChangedSessionAfterPendingResponse(t *testing.T) {
 	if unlocked.payload["locked"] != false || unlocked.payload["heartbeat_id"] == locked.payload["heartbeat_id"] {
 		t.Fatalf("unlock did not send a new report: %+v", unlocked.payload)
 	}
-	unlocked.reply <- loopReply{status: 200, body: `{"action":"lock","reason":"paused","quota_seconds":120,"remaining_seconds":100,"policy_version":2}`}
+	unlocked.reply <- loopReply{status: 200, body: `{"action":"lock","reason":"paused","quota_seconds":120,"remaining_seconds":100,"policy_version":2,"policy_date":"2026-09-18"}`}
 	h.await(func(s clientState) bool { return s.Reason == "paused" })
 	if h.locks.Load() != 1 {
 		t.Fatalf("server pause after unlock did not trigger lock: %d", h.locks.Load())

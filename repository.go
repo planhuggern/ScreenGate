@@ -118,9 +118,29 @@ func (r *repository) insertHeartbeat(h heartbeat, credit *int64, duplicate *bool
 	var requestID any
 	if h.HeartbeatID != "" {
 		requestID = h.HeartbeatID
-		var existing int
-		err := tx.QueryRow(`SELECT 1 FROM heartbeats WHERE user = ? AND device_id = ? AND heartbeat_id = ?`, h.User, h.DeviceID, h.HeartbeatID).Scan(&existing)
+		var existing sql.NullString
+		err := tx.QueryRow(`SELECT usage_batch_id FROM heartbeats WHERE user = ? AND device_id = ? AND heartbeat_id = ?`, h.User, h.DeviceID, h.HeartbeatID).Scan(&existing)
 		if err == nil {
+			batchID := ""
+			if h.Usage != nil {
+				batchID = h.Usage.ID
+			}
+			if existing.String != batchID {
+				return errInvalidHeartbeat
+			}
+			if h.Usage != nil {
+				var stored string
+				if err := tx.QueryRow(`SELECT payload_hash FROM usage_batches WHERE user=? AND device_id=? AND batch_id=?`, h.User, h.DeviceID, batchID).Scan(&stored); err != nil {
+					return err
+				}
+				hash, err := usageBatchHash(h.Usage)
+				if err != nil {
+					return err
+				}
+				if hash != stored {
+					return errInvalidHeartbeat
+				}
+			}
 			*duplicate = true
 			return tx.Commit()
 		}
@@ -128,8 +148,8 @@ func (r *repository) insertHeartbeat(h heartbeat, credit *int64, duplicate *bool
 			return err
 		}
 	}
-	// Only server receipt times and the previous lock state determine usage.
-	// A lock closes the unlocked interval; an unlock starts a new one.
+	// Legacy clients use receipt times and the previous lock state. New clients
+	// submit measured intervals; adding a receipt gap would charge them twice.
 	milliseconds := int64(0)
 	var previous, previousState string
 	err = tx.QueryRow(`SELECT reported_at, session_state FROM user_presence WHERE user = ? AND device_id = ?`, h.User, h.DeviceID).Scan(&previous, &previousState)
@@ -139,11 +159,21 @@ func (r *repository) insertHeartbeat(h heartbeat, credit *int64, duplicate *bool
 			return err
 		}
 		gap := h.ReportedAt.Sub(at)
-		if previousState != "locked" && gap > 0 && gap <= maxHeartbeatGap {
+		if h.Usage == nil && previousState != "locked" && gap > 0 && gap <= maxHeartbeatGap {
 			milliseconds = gap.Milliseconds()
 		}
 	} else if err != sql.ErrNoRows {
 		return err
+	}
+	credited := milliseconds
+	var usageID any
+	if h.Usage != nil {
+		var err error
+		credited, err = recordUsageBatch(tx, h)
+		if err != nil {
+			return err
+		}
+		usageID = h.Usage.ID
 	}
 	state := h.SessionState
 	if h.Locked != nil {
@@ -155,8 +185,8 @@ func (r *repository) insertHeartbeat(h heartbeat, credit *int64, duplicate *bool
 	if state == "" {
 		state = "active"
 	}
-	_, err = tx.Exec(`INSERT INTO heartbeats (reported_at, reported_unix, accounting_unix, device_id, user, heartbeat_id, credited_milliseconds, credited_until, session_state)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, h.ReportedAt.UTC().Format(time.RFC3339Nano), h.ReportedAt.Unix(), h.ReportedAt.Unix(), h.DeviceID, h.User, requestID, milliseconds, h.ReportedAt.UTC().Format(time.RFC3339Nano), state)
+	_, err = tx.Exec(`INSERT INTO heartbeats (reported_at, reported_unix, accounting_unix, device_id, user, heartbeat_id, credited_milliseconds, credited_until, session_state, usage_batch_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, h.ReportedAt.UTC().Format(time.RFC3339Nano), h.ReportedAt.Unix(), h.ReportedAt.Unix(), h.DeviceID, h.User, requestID, milliseconds, h.ReportedAt.UTC().Format(time.RFC3339Nano), state, usageID)
 	if err != nil {
 		return err
 	}
@@ -169,12 +199,12 @@ func (r *repository) insertHeartbeat(h heartbeat, credit *int64, duplicate *bool
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	*credit = milliseconds
+	*credit = credited
 	return nil
 }
 
 func (r *repository) heartbeatsForUser(user string) ([]recordedHeartbeat, error) {
-	rows, err := r.db.Query(`SELECT device_id, reported_at, credited_milliseconds, credited_until, session_state FROM heartbeats WHERE user = ? ORDER BY reported_unix, id`, user)
+	rows, err := r.db.Query(usageHistoryQuery, user, user)
 	if err != nil {
 		return nil, err
 	}
@@ -185,8 +215,8 @@ func (r *repository) heartbeatsForUserRange(user string, start, end time.Time) (
 	// Query by the time usage belongs to, not when an offline report arrived.
 	// Even a report retried weeks later stays in the correct day, and the
 	// indexed query is bounded independently of total database history.
-	rows, err := r.db.Query(`SELECT device_id, reported_at, credited_milliseconds, credited_until, session_state FROM heartbeats
-		WHERE user = ? AND accounting_unix >= ? AND accounting_unix <= ? ORDER BY reported_unix, id`,
+	rows, err := r.db.Query(usageHistoryRangeQuery,
+		user, start.Add(-maxHeartbeatGap).Unix(), end.Add(maxReportedActivity).Unix(),
 		user, start.Add(-maxHeartbeatGap).Unix(), end.Add(maxReportedActivity).Unix())
 	if err != nil {
 		return nil, err
@@ -264,7 +294,7 @@ func (r *repository) deleteUser(user string) error {
 	if _, err := tx.Exec(`DELETE FROM heartbeat_monitor WHERE device IN (SELECT id FROM monitor_devices WHERE user=?)`, user); err != nil {
 		return err
 	}
-	for _, table := range []string{"monitor_devices", "pairing_codes", "devices", "user_presence", "daily_bonuses", "weekday_policies", "user_settings", "heartbeats", "user_quotas", "audit_events"} {
+	for _, table := range []string{"usage_intervals", "usage_batches", "monitor_devices", "pairing_codes", "devices", "user_presence", "daily_bonuses", "weekday_policies", "user_settings", "heartbeats", "user_quotas", "audit_events"} {
 		if _, err := tx.Exec("DELETE FROM "+table+" WHERE user = ?", user); err != nil {
 			return err
 		}
