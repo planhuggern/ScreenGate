@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"screengate/internal/sessiondiag"
 )
 
 func monitorDeviceView(record monitorDeviceRecord, now time.Time, location *time.Location) monitorDevice {
@@ -13,6 +15,12 @@ func monitorDeviceView(record monitorDeviceRecord, now time.Time, location *time
 		ID: record.ID, At: record.At.In(location).Format("02.01 15:04:05"),
 		Age: humanDuration(age), State: sessionLabel(record.State), Version: record.Version,
 		Missing: now.Sub(record.At) > maxHeartbeatGap, Status: "Rapporterer",
+	}
+	device.Diagnostics = sessionDiagnosticsLabel(record.Diagnostics, location)
+	if record.Diagnostics != nil && record.Diagnostics.Failed {
+		device.ReadError = true
+		device.State = "Ukjent · reserveverdi: " + sessionLabel(record.State)
+		device.Status = "Avlesingsfeil fra Windows"
 	}
 	if record.Status != 200 {
 		device.Status = fmt.Sprintf("Rapport avvist · HTTP %d", record.Status)
@@ -36,7 +44,64 @@ func monitorEntryView(record monitorRecord, location *time.Location) monitorEntr
 		entry.Quota, entry.Remaining = "Ubegrenset", "Ubegrenset"
 	}
 	entry.Note, entry.Alert = monitorNote(record)
+	entry.Diagnostics = sessionDiagnosticsLabel(record.Diagnostics, location)
+	if record.Diagnostics != nil && record.Diagnostics.Failed {
+		entry.State = "Ukjent · reserveverdi: " + sessionLabel(record.State)
+		entry.Alert = true
+	}
 	return entry
+}
+
+func sessionDiagnosticsLabel(report *sessiondiag.Report, location *time.Location) string {
+	if report == nil {
+		return "Ikke rapportert av klienten"
+	}
+	stamp := func(at time.Time) string { return at.In(location).Format("02.01.2006 15:04:05") }
+	text := "Avlesing OK · " + stamp(report.ObservedAt)
+	if report.Failed {
+		text = "Avlesingsfeil · " + stamp(report.ObservedAt)
+	}
+	if failure := report.LastError; failure != nil {
+		code := "uten feilkode"
+		if failure.Code != nil {
+			code = fmt.Sprintf("Windows-feil %d", *failure.Code)
+		}
+		label := "Siste feil"
+		if report.Failed {
+			label = "Feil"
+		}
+		text += fmt.Sprintf(". %s: %s · %s · %s · %s", label, failure.Call, sessionFailureReason(failure.Reason), code, stamp(failure.At))
+	}
+	if report.Failed {
+		if success := report.LastSuccess; success != nil {
+			text += ". Sist vellykket (historikk): " + sessionLabel(success.State) + " · " + stamp(success.At)
+		} else {
+			text += ". Ingen lagret vellykket avlesing"
+		}
+	}
+	return text
+}
+
+func sessionFailureReason(reason string) string {
+	switch reason {
+	case "call_failed":
+		return "Windows-kallet feilet"
+	case "empty_response":
+		return "Tomt svar"
+	case "truncated_response":
+		return "Ufullstendig svar"
+	case "unknown_level":
+		return "Ukjent svarformat"
+	case "session_mismatch":
+		return "Svaret gjelder en annen økt"
+	case "unknown_session_state":
+		return "Ukjent økttilstand"
+	case "unknown_lock_flag":
+		return "Ukjent låseflagg"
+	case "empty_desktop_name":
+		return "Tomt skrivebordsnavn"
+	}
+	return "Ukjent feilårsak"
 }
 
 func monitorMilliseconds(value sql.NullInt64) string {
@@ -72,12 +137,15 @@ func monitorNote(record monitorRecord) (note string, alert bool) {
 }
 
 type monitorDevice struct {
+	Diagnostics                     string
+	ReadError                       bool
 	ID                              int64
 	At, Age, State, Version, Status string
 	Missing                         bool
 }
 
 type monitorEntry struct {
+	Diagnostics                                                                           string
 	Gap                                                                                   string
 	Device                                                                                int64
 	At, State, Version, Reported, Credited, Remaining, Quota, Lease, Action, Reason, Note string

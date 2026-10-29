@@ -33,7 +33,7 @@ Disse endepunktene er offentlige; privat signeringsnøkkel eller enhetsnøkler s
   "device_id":"Nora-PC",
   "user":"Nora",
   "heartbeat_id":"tilfeldig-unik-id-per-rapport",
-  "client_version":"2026.10.28.3",
+  "client_version":"2026.10.28.4",
   "locked":false,
   "usage":{
     "id":"unik-id-for-forbruksrapporten",
@@ -45,7 +45,7 @@ Disse endepunktene er offentlige; privat signeringsnøkkel eller enhetsnøkler s
 }
 ```
 
-- `client_version` identifiserer klientutgaven. Samme versjons-ID sendes i `User-Agent: ScreenGate-Client/2026.10.28.3` ved heartbeat og programrapporter. Eldre klienter kan utelate feltet.
+- `client_version` identifiserer klientutgaven. Samme versjons-ID sendes i `User-Agent: ScreenGate-Client/2026.10.28.4` ved heartbeat og programrapporter. Eldre klienter kan utelate feltet.
 - `locked` er `true` mens Windows er låst, ellers `false`. Klienten sender heartbeat ved endring og hvert 30. sekund, også mens den er låst.
 - Med `usage` belaster serveren de målte intervallene én gang og legger ikke også til mottaksintervaller. Forsinket bruk registreres på faktisk dato/time etter serverens tidssone. Ulåst tid telles også uten tastatur- eller museaktivitet.
 - Uten `usage` beholdes eldre beregning fra serverens mottakstidspunkter: første rapport starter målingen, og neste rapport belaster intervallet hvis forrige status var ulåst og oppholdet er høyst 63 sekunder. Slike eldre rapporter etterregistrerer ikke tid fra lengre nettbrudd.
@@ -116,6 +116,35 @@ Ukjent tidspunkt angis med Go sin nulltid (`0001-01-01T00:00:00Z`). Ikke bruk de
 En rapport med samme ID belastes bare én gang. Serveren beregner likevel en ny beslutning fra gjeldende regler, slik at et nytt pausevedtak ikke skjules av en eldre rapport.
 
 ## Feil betyr ikke ny tillatelse
+
+### Diagnostikk fra Windows-avlesing
+
+Fra klient `2026.10.28.4` kan heartbeat også inneholde `session_diagnostics`:
+
+```json
+{
+  "observed_at":"2026-10-28T11:10:00+01:00",
+  "failed":true,
+  "last_error":{
+    "at":"2026-10-28T11:10:00+01:00",
+    "call":"OpenInputDesktop",
+    "reason":"call_failed",
+    "code":5
+  },
+  "last_success":{
+    "at":"2026-10-28T11:09:59+01:00",
+    "state":"active"
+  }
+}
+```
+
+`failed` beskriver siste avlesing. Ved feil gjelder `last_error.at` samme tidspunkt som `observed_at`; `last_success` er bare historikk. Ved vellykket avlesing er `failed=false` og `last_success.at` lik `observed_at`. Siste feil kan fortsatt følge med etter gjenoppretting, også etter nettbrudd eller omstart. Klienten sender ikke en kø over alle tidligere feilperioder. Tidspunktene kommer fra klientens klokke.
+
+`code` er en tilgjengelig numerisk Windows-feilkode og utelates når koden mangler eller ikke er dokumentert for kallet. Tolkningsfeil har ingen oppdiktet kode. Bare kjente Windows-kall og årsakskoder godtas for lagring og offentlig visning; ugyldig diagnostikk forkastes uten å endre kvotebeslutningen. Formatet og de tillatte kodene finnes i `internal/sessiondiag/report.go`.
+
+`locked` beholder dagens reserveverdi også ved en mislykket avlesing. Serveren bruker ikke diagnostikken som en ny telle- eller låseregel. Overvåkingen merker da øktstatus som ukjent og viser reserveverdien separat. En endret feil eller gjenoppretting utløser et kontaktforsøk; er en forespørsel allerede underveis, følger siste diagnostikk i neste forsøk. Eldre klienter kan utelate hele feltet.
+
+### HTTP-feil
 
 Feil returneres som riktig HTTP-status og et objekt som `{"error":"invalid heartbeat"}`. De inneholder aldri `action: allow`.
 

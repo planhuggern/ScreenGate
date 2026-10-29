@@ -56,6 +56,9 @@ func monitorRecordFromHeartbeat(h heartbeat, result heartbeatResult, at time.Tim
 		state, version = "unknown", "Ukjent"
 	}
 	record := monitorRecord{At: at, State: state, Version: version, Status: status, Reason: reason, Duplicate: result.Duplicate}
+	if h.SessionDiagnostics != nil && h.SessionDiagnostics.Valid() && reason != "invalid_json" && reason != "identity_mismatch" {
+		record.Diagnostics = h.SessionDiagnostics
+	}
 	if h.ReportedActivityPresent && reason != "invalid_json" && reason != "identity_mismatch" {
 		record.ReportedSeconds = sql.NullInt64{Int64: int64(h.ActiveSeconds), Valid: true}
 	}

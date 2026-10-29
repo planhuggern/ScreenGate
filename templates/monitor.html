@@ -19,10 +19,11 @@
   <p class="meta">Sist oppdatert {{.Updated}} · {{.Timezone}} · <a href="?device={{.Selected}}">Oppdater nå</a></p>
   <section aria-label="Enhetsstatus" class="monitor-devices">
   {{range .Devices}}
-    <article class="panel monitor-device {{if .Missing}}missing{{end}}">
+    <article class="panel monitor-device {{if or .Missing .ReadError}}missing{{end}}">
       <h2><a href="?device={{.ID}}">Enhet {{.ID}}</a></h2>
-      <p><strong class="status {{if .Missing}}missing{{end}}">{{.Status}}</strong></p>
+      <p><strong class="status {{if or .Missing .ReadError}}missing{{end}}">{{.Status}}</strong></p>
       <p>Siste rapport: <strong>{{.At}}</strong></p><p>{{.Age}} siden · {{.State}}</p><p class="meta">Klient {{.Version}}</p>
+      <p class="meta">{{.Diagnostics}}</p>
     </article>
   {{else}}<p>Ingen enheter har rapportert siden overvåkingen ble aktivert.</p>{{end}}
   </section>
@@ -35,14 +36,15 @@
   <div class="monitor-table">
   <table>
     <caption>{{len .Entries}} rapporter{{if .Selected}} for Enhet {{.Selected}} blant de 100 siste{{end}}. Alle tidsverdier er sekunder.</caption>
-    <thead><tr><th scope="col">Mottatt på server</th><th scope="col">Opphold</th><th scope="col">Enhet</th><th scope="col">Klient</th><th scope="col">Øktstatus</th><th scope="col">Rapportert</th><th scope="col">Belastet</th><th scope="col">Gjenstår</th><th scope="col">Kvote</th><th scope="col">Tillatelse</th><th scope="col">Beslutning / årsak</th><th scope="col">HTTP</th><th scope="col">Merknad</th></tr></thead>
+    <thead><tr><th scope="col">Mottatt på server</th><th scope="col">Opphold</th><th scope="col">Enhet</th><th scope="col">Klient</th><th scope="col">Øktstatus</th><th scope="col">Windows-avlesing</th><th scope="col">Rapportert</th><th scope="col">Belastet</th><th scope="col">Gjenstår</th><th scope="col">Kvote</th><th scope="col">Tillatelse</th><th scope="col">Beslutning / årsak</th><th scope="col">HTTP</th><th scope="col">Merknad</th></tr></thead>
     <tbody>{{range .Entries}}
-      <tr {{if .Alert}}class="warning"{{end}}><td>{{.At}}</td><td>{{.Gap}}</td><td>Enhet {{.Device}}</td><td>{{.Version}}</td><td>{{.State}}</td><td>{{.Reported}}</td><td>{{.Credited}}</td><td>{{.Remaining}}</td><td>{{.Quota}}</td><td>{{.Lease}}</td><td>{{.Action}}<br>{{.Reason}}</td><td>{{.Status}}</td><td class="note">{{.Note}}</td></tr>
-    {{else}}<tr><td colspan="13">Ingen rapporter å vise.</td></tr>{{end}}</tbody>
+      <tr {{if .Alert}}class="warning"{{end}}><td>{{.At}}</td><td>{{.Gap}}</td><td>Enhet {{.Device}}</td><td>{{.Version}}</td><td>{{.State}}</td><td class="note">{{.Diagnostics}}</td><td>{{.Reported}}</td><td>{{.Credited}}</td><td>{{.Remaining}}</td><td>{{.Quota}}</td><td>{{.Lease}}</td><td>{{.Action}}<br>{{.Reason}}</td><td>{{.Status}}</td><td class="note">{{.Note}}</td></tr>
+    {{else}}<tr><td colspan="14">Ingen rapporter å vise.</td></tr>{{end}}</tbody>
   </table>
   </div>
   <p class="explanation">Gult markerer mulige avvik, feil eller manglende rapporter etter 63 sekunder. En avslått PC kan også gi manglende rapporter. Serveren kan ikke skille nettbrudd, krasj og avsluttet klient uten flere opplysninger fra PC-en.</p>
-  <p class="explanation">Belastet tid beregnes av serveren fra rapportintervallene og forrige øktstatus. «—» betyr at verdien ikke er tilgjengelig; nyere klienter sender ikke egne aktivitetssekunder. Duplikater belastes ikke på nytt. En låserapport kan belaste intervallet før låsing. Tillatelse er varigheten serveren sendte, ikke bekreftelse på at klienten håndhevet den.</p>
+  <p class="explanation">Belastet tid bygger på målte bruksintervaller fra nyere klienter; eldre klienter bruker mottaksintervall og forrige øktstatus. «—» betyr at verdien ikke er tilgjengelig. Duplikater belastes ikke på nytt. En låserapport kan belaste intervallet før låsing. Tillatelse er varigheten serveren sendte, ikke bekreftelse på at klienten håndhevet den.</p>
+  <p class="explanation">Ved avlesingsfeil er øktstatus ukjent. Reserveverdien viser hva klienten bruker til telling og låsing; den bekrefter ikke Windows-status. Sist vellykkede avlesing er historikk. Avlesingstidspunktene kommer fra PC-ens klokke; mottakstidspunktet kommer fra serveren. Eldre klienter rapporterer ikke disse feilopplysningene.</p>
   <p class="meta">Siden er åpen uten innlogging og viser anonyme enhetsaliaser. Navn, maskinnavn, nøkler, IP-adresser og programnavn vises ikke. Avviste forespørsler uten gyldig enhetsnøkkel inngår ikke.</p>
 </main>
 </body>

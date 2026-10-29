@@ -14,6 +14,7 @@ ScreenGate styrer skjermtid på Windows-PC-er fra en liten Go-server hjemme. For
 - Varsler på Windows før tiden er brukt opp, og lokal låsing når tillatelsen utløper.
 - Varig klienttilstand og idempotente rapporter: omstart og tapte svar skal ikke gi ny kvote eller dobbelttelle aktivitet.
 - Lokal restkvote og ukeplan ved nettbrudd, ny dagskvote ved midnatt og bekreftet avstemming i klient 2026.10.28.3; se [status for regelendringene](docs/STEP_4.md).
+- Windows-avlesingsfeil med kall, tidspunkt og tilgjengelig feilkode i lokal logg og offentlig overvåking fra klient 2026.10.28.4. Dagens reserveverdier for telling og låsing er beholdt.
 - Konsistent SQLite-sikkerhetskopi som kan lastes ned fra foreldreoversikten.
 
 Forsiden viser ingen navn eller aktivitetsdata. Registrering av programmer er avslått som standard. Serveren lagrer ikke programnavn, vindustitler, innhold eller nettleserhistorikk.

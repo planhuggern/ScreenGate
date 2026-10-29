@@ -13,20 +13,22 @@ import (
 	"time"
 
 	"screengate/internal/screenpolicy"
+	"screengate/internal/sessiondiag"
 )
 
 // Bump for each client release, including fixes distributed by the updater.
-const clientVersion = "2026.10.28.3"
+const clientVersion = "2026.10.28.4"
 
 type heartbeat struct {
-	Usage         *usageBatch `json:"usage,omitempty"`
-	DeviceID      string      `json:"device_id"`
-	User          string      `json:"user"`
-	HeartbeatID   string      `json:"heartbeat_id"`
-	ActivityDate  string      `json:"activity_date,omitempty"`
-	SessionState  string      `json:"session_state"`
-	ActiveSeconds int         `json:"active_seconds"`
-	ReportedAt    time.Time   `json:"reported_at"`
+	SessionDiagnostics *sessiondiag.Report `json:"session_diagnostics,omitempty"`
+	Usage              *usageBatch         `json:"usage,omitempty"`
+	DeviceID           string              `json:"device_id"`
+	User               string              `json:"user"`
+	HeartbeatID        string              `json:"heartbeat_id"`
+	ActivityDate       string              `json:"activity_date,omitempty"`
+	SessionState       string              `json:"session_state"`
+	ActiveSeconds      int                 `json:"active_seconds"`
+	ReportedAt         time.Time           `json:"reported_at"`
 }
 
 type response struct {
@@ -110,13 +112,14 @@ func postJSON(ctx context.Context, client *http.Client, endpoint, token string, 
 func postHeartbeat(ctx context.Context, client *http.Client, endpoint, token string, report heartbeat) (response, error) {
 	// Usage is computed by the server. Local estimates remain in saved state only.
 	payload := struct {
-		DeviceID      string      `json:"device_id"`
-		User          string      `json:"user"`
-		HeartbeatID   string      `json:"heartbeat_id"`
-		Locked        bool        `json:"locked"`
-		ClientVersion string      `json:"client_version"`
-		Usage         *usageBatch `json:"usage,omitempty"`
-	}{report.DeviceID, report.User, report.HeartbeatID, report.SessionState == "locked", clientVersion, report.Usage}
+		SessionDiagnostics *sessiondiag.Report `json:"session_diagnostics,omitempty"`
+		DeviceID           string              `json:"device_id"`
+		User               string              `json:"user"`
+		HeartbeatID        string              `json:"heartbeat_id"`
+		Locked             bool                `json:"locked"`
+		ClientVersion      string              `json:"client_version"`
+		Usage              *usageBatch         `json:"usage,omitempty"`
+	}{report.SessionDiagnostics, report.DeviceID, report.User, report.HeartbeatID, report.SessionState == "locked", clientVersion, report.Usage}
 	httpResponse, err := postJSON(ctx, client, endpoint, token, payload)
 	if err != nil {
 		return response{}, err

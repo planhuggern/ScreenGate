@@ -16,7 +16,7 @@ type clientRuntime struct {
 	reportTicks   <-chan time.Time
 	httpClient    *http.Client
 	save          func(clientState) error
-	sessionState  func(time.Duration) string
+	sessionState  func(time.Duration) sessionObservation
 	lock          func()
 	showWarning   func(screenTimeWarning) error
 	foregroundApp func() (string, error)
@@ -33,11 +33,13 @@ type clientLoop struct {
 	state   clientState
 	guard   enforcement
 
-	sessionState string
-	lastPoll     time.Time
-	meter        activityMeter
-	warnings     warningState
-	lastStatus   string
+	sessionState       string
+	lastPoll           time.Time
+	lastSessionLog     time.Time
+	diagnosticRevision uint64
+	meter              activityMeter
+	warnings           warningState
+	lastStatus         string
 
 	heartbeatInFlight bool
 	heartbeatResults  chan heartbeatResult
@@ -59,7 +61,7 @@ func runClient(ctx context.Context, config clientConfig, state clientState, guar
 	}
 	client.persist()
 	client.lastPoll = runtime.now()
-	client.sessionState = runtime.sessionState(runtime.idleTimeout)
+	client.sessionState, _ = client.observeSession(runtime.now())
 	client.meter.update(client.sessionState != "locked", runtime.now())
 	client.sendHeartbeat()
 
@@ -87,7 +89,7 @@ func (c *clientLoop) poll(now time.Time) {
 	}
 	c.lastPoll = now
 
-	currentState := c.runtime.sessionState(c.runtime.idleTimeout)
+	currentState, diagnosticChanged := c.observeSession(now)
 	seconds := c.meter.update(currentState != "locked", now)
 	previousDate := c.state.PolicyDate
 	c.state.account(seconds, now)
@@ -105,7 +107,7 @@ func (c *clientLoop) poll(now time.Time) {
 		}
 	}
 
-	if currentState != c.sessionState {
+	if diagnosticChanged || currentState != c.sessionState {
 		log.Printf("session_state=%s", currentState)
 		c.sessionState = currentState
 		c.sendHeartbeat()
@@ -151,10 +153,11 @@ func (c *clientLoop) enforce(now time.Time) {
 }
 
 type heartbeatResult struct {
-	sessionState string
-	response     response
-	sentAt       time.Time
-	err          error
+	diagnosticRevision uint64
+	sessionState       string
+	response           response
+	sentAt             time.Time
+	err                error
 }
 
 // Save the report before sending. A network worker cannot block local checks.
@@ -173,10 +176,11 @@ func (c *clientLoop) sendHeartbeat() {
 		return
 	}
 	c.heartbeatInFlight = true
+	revision := c.diagnosticRevision
 	go func() {
 		result, err := postHeartbeat(c.ctx, c.runtime.httpClient, c.config.Server, c.config.Token, report)
 		select {
-		case c.heartbeatResults <- heartbeatResult{response: result, sentAt: now, err: err, sessionState: report.SessionState}:
+		case c.heartbeatResults <- heartbeatResult{diagnosticRevision: revision, response: result, sentAt: now, err: err, sessionState: report.SessionState}:
 		case <-c.ctx.Done():
 		}
 	}()
@@ -198,7 +202,7 @@ func (c *clientLoop) handleHeartbeat(result heartbeatResult) {
 	c.enforce(now)
 
 	backlog := len(c.state.UnreportedUsage) > 0 && c.state.UnreportedUsage[0].Start.Before(c.usageSyncUntil)
-	if result.sessionState != c.sessionState || (result.err == nil && backlog) {
+	if result.diagnosticRevision != c.diagnosticRevision || result.sessionState != c.sessionState || (result.err == nil && backlog) {
 		c.sendHeartbeat()
 	}
 }

@@ -3,10 +3,13 @@ package main
 import (
 	"slices"
 	"time"
+
+	"screengate/internal/sessiondiag"
 )
 
 type heartbeat struct {
-	Usage                   *usageBatch `json:"usage,omitempty"`
+	SessionDiagnostics      *sessiondiag.Report `json:"session_diagnostics,omitempty"`
+	Usage                   *usageBatch         `json:"usage,omitempty"`
 	accountingLocation      *time.Location
 	ReportedActivityPresent bool      `json:"-"`
 	ClientVersion           string    `json:"client_version,omitempty"`

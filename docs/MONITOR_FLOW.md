@@ -45,3 +45,9 @@ Visningsdata er også sammenlignet direkte med den tidligere `monitorData`-funks
 Den planlagte ansvarsdelingen i steg 3 er nå gjennomført: klientens hovedløp, oppstartsinnstillinger og tilstandslagring er ryddet, og overvåkingens lagring er skilt fra presentasjon. [Klientveiledningen](CLIENT_FLOW.md) beskriver klientdelen.
 
 Steg 4 er en egen oppgave: innføre én av de [vedtatte reglene](BEHAVIOR_RULES.md) om gangen og rette de dokumenterte avvikene. Dette er ikke gjort gjennom strukturendringene.
+
+## Senere tillegg: Windows-avlesingsfeil
+
+[Steg 4, del 4](STEP_4.md) innfører `session_diagnostics` fra klient `2026.10.28.4`. Feltet inneholder tidspunkt, feilstatus, siste feil og siste vellykkede avlesing. Serveren godtar bare kjente kall og årsaker for offentlig visning. Diagnostikken lagres i begge overvåkingstabellene gjennom migrering 8; grensen på 100 rapporter er uendret.
+
+`monitorDeviceView` og `monitorEntryView` markerer pågående feil og viser øktstatus som ukjent med klientens reserveverdi. Siste vellykkede status er historikk, og en senere vellykket rapport beholder tidspunktet for siste feil. Eldre klienter viser at diagnostikken ikke er rapportert. Manglende rapporter er fortsatt en separat status. Overvåkingen endrer ikke hva som telles eller når klienten forsøker å låse.

@@ -1,6 +1,6 @@
 # Steg 4: lokal kvote og avstemming
 
-Del 1 ble innført i klientversjon **2026.10.28.1**. Del 2, avstemming ved gjenoppkobling, er innført i **2026.10.28.2**. Del 3, lagret ukeplan og ny dagskvote uten nett, er innført i **2026.10.28.3**. Del 2 og 3 har tilhørende serveroppdateringer. Delene følger de [vedtatte reglene](BEHAVIOR_RULES.md).
+Del 1 ble innført i klientversjon **2026.10.28.1**. Del 2, avstemming ved gjenoppkobling, er innført i **2026.10.28.2**. Del 3, lagret ukeplan og ny dagskvote uten nett, er innført i **2026.10.28.3**. Del 4, observasjon av Windows-avlesingsfeil, er innført i **2026.10.28.4**. Del 2–4 har tilhørende serveroppdateringer. Delene følger de [vedtatte reglene](BEHAVIOR_RULES.md).
 
 ## Oppførselen som er endret
 
@@ -119,6 +119,46 @@ Testene dekker døgnskifte med ulike ukedagskvoter, bonusutløp, forbruk på beg
 
 Kontrollene er `go test ./...`, `go test -race ./...`, `go vet ./...` og separate Windows-bygg under `.artifacts`. Ingen klient er installert eller startet, og ingen utrulling er gjort.
 
+## Del 4: synlige feil ved avlesing av Windows-status
+
+Klienten skiller nå en bekreftet øktstatus fra reserveverdien som brukes når Windows-avlesingen feiler. Dette er observasjonstiltaket vi avtalte. Feilen innfører ingen ny telle- eller låseregel og ingen 30-sekundersfrist.
+
+| Situasjon | Fortsatt brukt til telling/låsing | Ny diagnostikk |
+| --- | --- | --- |
+| Feil fra `ProcessIdToSessionId`, `WTSQuerySessionInformationW`, `OpenInputDesktop` eller `GetUserObjectInformationW` | `locked` som før | Kall, tidspunkt og eventuell tilgjengelig Windows-feilkode. |
+| Ufullstendig WTS-svar, ukjent format/flagg/tilstand eller feil økt i svaret | `locked` som før | Konkret tolkningsfeil uten oppdiktet feilkode. |
+| `GetLastInputInfo` feiler | `active` som før | Feilet kall uten feilkode; denne funksjonen dokumenterer ingen utvidet feilkode. |
+| Gyldig låseflagg, frakoblet økt eller kjent annet skrivebord enn `Default` | `locked` som før | Vellykket avlesing av den eksisterende tilstandsvurderingen. |
+
+Microsoft beskriver bare returverdien for [GetLastInputInfo](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getlastinputinfo). Klienten viderefører derfor ikke en mulig gammel trådfeilkode fra dette kallet. De øvrige feilene beholder tilgjengelige koder fra det feilede kallet; vellykkede kall gir ingen feilkode.
+
+### Hva du ser
+
+Klientloggen `%LOCALAPPDATA%\ScreenGate\client.log` registrerer feil med tidspunkt, kall, årsak, eventuell kode og brukt reserveverdi. Første feil og endret feil logges straks. Ved samme vedvarende feil kommer en påminnelse hvert minutt. Når avlesingen fungerer igjen, logges gjenopprettingen. Dette skjer også uten nett.
+
+Heartbeats får et valgfritt `session_diagnostics`-objekt. Endret feiltilstand eller gjenoppretting forsøkes rapportert straks, også når reserveverdien ikke endres. Hvis en forespørsel allerede venter, sendes siste diagnostikk etterpå. Siste feil og siste vellykkede avlesing lagres med klienttilstanden og overlever omstart.
+
+Dashboardet viser en egen kolonne for Windows-avlesing og fremhever en pågående feil. Øktstatus merkes da «Ukjent · reserveverdi: …». Sist vellykkede avlesing vises som tidsstemplet historikk, ikke som bekreftelse på nåværende Windows-status. Etter gjenoppretting vises «Avlesing OK» og tidspunktet for siste feil. Manglende nettverksrapporter og avviste forespørsler vises fortsatt separat. Tidspunkter for avlesing kommer fra PC-ens klokke; mottakstidspunktet kommer fra serveren.
+
+Klienten beholder siste feil, ikke en ubegrenset kø av alle feilperioder. Flere feil under samme nettbrudd finnes i den lokale loggen; dashboardet får den siste når kontakt gjenopprettes. Dashboardets historikk er fortsatt de 100 siste mottatte heartbeats. Det kan fortsatt ikke fastslå at en klient har krasjet eller er avsluttet med vilje.
+
+### Hvor koden ligger
+
+| Fil | Ansvar |
+| --- | --- |
+| `cmd/client/session_windows.go` | De faktiske Windows-kallene og tilgjengelige feilkoder. |
+| `cmd/client/session_reader.go` | Leserekkefølgen og de eksisterende reserveverdiene, med feil vedlagt. |
+| `cmd/client/session_diagnostics.go` | Logging, gjenoppretting og historikk for siste feil/vellykkede avlesing. |
+| `internal/sessiondiag/report.go` | Det felles, begrensede rapportformatet for klient og server. |
+| `heartbeat_monitor*.go` | Kontroll, lagring og visning av diagnostikken på serveren. |
+| `migrations/00008_session_diagnostics.sql` | Nye diagnostikkfelt i overvåkingens to tabeller. |
+
+Serveren lagrer bare kjente kall og årsakskoder, numeriske feilkoder og tidsstempler fra denne diagnostikken. Vilkårlig klienttekst vises ikke på den offentlige siden. Gyldig kvotebeslutning og avstemming avhenger ikke av om diagnostikken kan brukes. Eldre klienter viser «Ikke rapportert av klienten». Eldre klientfiler kan fortsatt leses.
+
+Oppdater serveren før klient **2026.10.28.4** for å se feilene i dashboardet. Klienten logger lokalt også før serveren støtter feltet. Testene bruker simulerte Windows-resultater og den vanlige klientløkken; de fremprovoserer ingen faktisk Windows-feil og låser ingen økt. De dekker reserveverdier, fraværende feilkode, gjentatt feil, gjenoppretting, nettbrudd/omstart, feil mens en rapport venter, offentlig visning, skjerming av klienttekst, eldre klienter og bevaring av gammel overvåkingshistorikk gjennom migreringen.
+
+Kontrollene er `go test ./...`, `go test -race ./...`, `go vet ./...` og server-/klientbygg under `.artifacts`. Ingen installasjon eller utrulling er gjort.
+
 ## Hva som gjenstår
 
-Observasjon av feil ved avlesing av Windows-status gjenstår i steg 4. Faktisk låsing og oppdatering må også prøves på en egen Windows-standardkonto før utrulling. Beskyttelse mot at klientprosessen avsluttes er fortsatt et eget senere prosjekt.
+De avtalte kodeendringene i steg 4 er gjennomført. Dagens reserveverdier ved Windows-feil har fortsatt de kjente konsekvensene for telling og låsing; eventuell endring krever et nytt regelvalg basert på observasjoner. Videre gjenstår oppryddingen og den praktiske Windows-kontrollen i de neste planstegene. Faktisk låsing og oppdatering må prøves på en egen Windows-standardkonto før utrulling. Beskyttelse mot at klientprosessen avsluttes er fortsatt et eget senere prosjekt.

@@ -2,6 +2,27 @@ package main
 
 import "encoding/binary"
 
+func sessionInfoError(info []byte, sessionID uint32) string {
+	if len(info) < 20 {
+		return "truncated_response"
+	}
+	read := binary.LittleEndian.Uint32
+	if read(info[0:4]) != 1 {
+		return "unknown_level"
+	}
+	if read(info[8:12]) != sessionID {
+		return "session_mismatch"
+	}
+	state, flags := read(info[12:16]), read(info[16:20])
+	if state > 9 {
+		return "unknown_session_state"
+	}
+	if state == 0 && flags != 0 && flags != 1 {
+		return "unknown_lock_flag"
+	}
+	return ""
+}
+
 // wtsSessionUnlocked reads the prefix of WTSINFOEXW level 1. The Data union
 // starts at byte 8 (after Level and four alignment bytes), including on Windows
 // x86. Its first fields are SessionId, SessionState and SessionFlags.

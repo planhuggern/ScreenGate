@@ -80,7 +80,7 @@ func main() {
 		reportTicks:  reportTicker.C,
 		httpClient:   newHTTPClient(),
 		save:         func(state clientState) error { return saveState(statePath, config.Token, state) },
-		sessionState: currentSessionState,
+		sessionState: currentSessionObservation,
 		lock: func() {
 			if ok, _, err := lockWorkStation.Call(); ok == 0 {
 				log.Printf("lock workstation failed: %v", err)

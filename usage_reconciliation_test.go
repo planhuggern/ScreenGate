@@ -298,7 +298,7 @@ func TestUsageMigrationPreservesExistingHistory(t *testing.T) {
 	}
 	defer r.close()
 	// Only this disposable database is downgraded to the pre-feature schema.
-	if err := goose.Down(r.db, "migrations"); err != nil {
+	if err := goose.DownTo(r.db, "migrations", 6); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)

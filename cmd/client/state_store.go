@@ -49,6 +49,10 @@ func loadState(path, identity, token string, now time.Time) (clientState, error)
 	if err := validateSavedState(state, identity); err != nil {
 		return initial, err
 	}
+	// Optional diagnostics must never invalidate an otherwise usable quota.
+	if state.SessionDiagnostics != nil && !state.SessionDiagnostics.Valid() {
+		state.SessionDiagnostics = nil
+	}
 	state.restoreAfterLoad(now)
 	return state, nil
 }

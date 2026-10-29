@@ -84,6 +84,8 @@ Hvis en rapport allerede venter på svar, starter ikke `sendHeartbeat` enda en p
 | [rules.go](../internal/screenpolicy/rules.go) | Kalenderreglene som både server og klient bruker for ukedager, tidsvinduer og bonusdato. |
 | [activity.go](../cmd/client/activity.go) | Måler lokale sekunder mellom sjekkene. |
 | [session_windows.go](../cmd/client/session_windows.go) | Leser Windows-økten gjennom Windows-API-er. |
+| [session_reader.go](../cmd/client/session_reader.go) | Følger leserekkefølgen og returnerer brukt tilstand sammen med eventuell avlesingsfeil. |
+| [session_diagnostics.go](../cmd/client/session_diagnostics.go) | Logger feil og gjenoppretting, og beholder siste feil/vellykkede avlesing til rapportering. |
 | [enforcement.go](../cmd/client/enforcement.go) | Utfører låseforsøk eller registrerer at den ville ha låst i testmodus. |
 | [warning.go](../cmd/client/warning.go) | Vurderer når et tidsvarsel skal vises. |
 
@@ -100,6 +102,8 @@ Steg 3 var strukturendringer med testene fra [steg 2-rapporten](STEP_2.md) som g
 Fra `2026.10.28.2` går lokalt målte intervaller også gjennom `usage.go`. `prepareUsage` lager et øyeblikksbilde med en stabil ID. `prepareReport` legger dette ved heartbeaten. `protocol.go` krever at serveren bekrefter samme ID, og `apply` fjerner først da det bekreftede forbruket. Nyere bruk forblir i køen og trekkes fortsatt lokalt. Denne køen og rapporten lagres sammen med resten av tilstanden, slik at et mistet svar eller en omstart ikke mister data. Ved gjenoppkobling sender løkken resten av den oppsamlede køen før den går tilbake til vanlig rapportrytme.
 
 Fra `2026.10.28.3` går kalenderreglene gjennom `local_policy.go`. `refreshPolicy` viderefører dagens restkvote, men gir riktig ny dagskvote når serverens kalenderdato skifter. `rememberDailyUsage` fordeler målt bruk mellom datoer, slik at et sent svar over midnatt ikke gir brukt tid tilbake. Ukeplan, pause og datobundet bonus kommer fra serverens `policy`-objekt. Selve tolkningen av ukeplanen ligger i `internal/screenpolicy`, felles for klient og server. Oppdagede lokale feil holdes separat i `LocalBlockReason`, slik at en åpning i ukeplanen ikke opphever for eksempel en nøkkelavvisning.
+
+Fra `2026.10.28.4` gir Windows-avlesingen også eventuell feilinformasjon. `observeSession` i `session_diagnostics.go` logger feil og gjenoppretting, og oppdaterer diagnostikken som følger heartbeats. Tilstanden som går til måleren og låsevurderingen er fortsatt den samme som før: de fleste avlesingsfeil gir reserveverdien `locked`, mens feil i inaktivitetsavlesingen gir `active`. Feilopplysningene alene innfører ingen ny håndheving. Siste feil beholdes også etter gjenoppretting, slik at en kort feil under nettbrudd ikke forsvinner før neste rapport.
 
 Innstillingskildenes prioritet og valget av testmodus/låsemodus kontrolleres også i `config_test.go`, med vanlige filer og kommandolinjeargumenter. Testene simulerer ingen Windows-låsing.
 

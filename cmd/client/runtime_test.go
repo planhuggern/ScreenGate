@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"screengate/internal/sessiondiag"
 )
 
 // These tests cover the production loop. TestLoop checks implemented rules;
@@ -65,19 +67,20 @@ func (s loopTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 type loopHarness struct {
-	t        *testing.T
-	mu       sync.Mutex
-	now      time.Time
-	path     string
-	polls    chan time.Time
-	reports  chan time.Time
-	requests chan loopRequest
-	saved    chan clientState
-	session  atomic.Value
-	locks    atomic.Int64
-	warnings atomic.Int64
-	cancel   context.CancelFunc
-	done     chan struct{}
+	t              *testing.T
+	mu             sync.Mutex
+	now            time.Time
+	path           string
+	polls          chan time.Time
+	reports        chan time.Time
+	requests       chan loopRequest
+	saved          chan clientState
+	session        atomic.Value
+	sessionFailure atomic.Pointer[sessiondiag.Failure]
+	locks          atomic.Int64
+	warnings       atomic.Int64
+	cancel         context.CancelFunc
+	done           chan struct{}
 }
 
 func startTestClient(t *testing.T, state clientState, now time.Time, path string, locking bool) *loopHarness {
@@ -117,9 +120,11 @@ func startTestClient(t *testing.T, state clientState, now time.Time, path string
 			h.saved <- snapshot
 			return nil
 		},
-		sessionState: func(time.Duration) string { return h.session.Load().(string) },
-		lock:         func() { h.locks.Add(1) },
-		showWarning:  func(screenTimeWarning) error { h.warnings.Add(1); return nil },
+		sessionState: func(time.Duration) sessionObservation {
+			return sessionObservation{State: h.session.Load().(string), Failure: h.sessionFailure.Load()}
+		},
+		lock:        func() { h.locks.Add(1) },
+		showWarning: func(screenTimeWarning) error { h.warnings.Add(1); return nil },
 		foregroundApp: func() (string, error) {
 			return "", errors.New("unexpected app tracking in loop test")
 		},
