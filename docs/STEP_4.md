@@ -161,4 +161,4 @@ Kontrollene er `go test ./...`, `go test -race ./...`, `go vet ./...` og server-
 
 ## Hva som gjenstår
 
-De avtalte kodeendringene i steg 4 er gjennomført. Dagens reserveverdier ved Windows-feil har fortsatt de kjente konsekvensene for telling og låsing; eventuell endring krever et nytt regelvalg basert på observasjoner. Videre gjenstår oppryddingen og den praktiske Windows-kontrollen i de neste planstegene. Faktisk låsing og oppdatering må prøves på en egen Windows-standardkonto før utrulling. Beskyttelse mot at klientprosessen avsluttes er fortsatt et eget senere prosjekt.
+De avtalte kodeendringene i steg 4 er gjennomført. Dagens reserveverdier ved Windows-feil har fortsatt de kjente konsekvensene for telling og låsing; eventuell endring krever et nytt regelvalg basert på observasjoner. Oppryddingen er gjennomført i [steg 5](STEP_5.md). Praktisk Windows-kontroll i steg 6 gjenstår: faktisk låsing og oppdatering må prøves på en egen Windows-standardkonto før utrulling. Beskyttelse mot at klientprosessen avsluttes er fortsatt et eget senere prosjekt.

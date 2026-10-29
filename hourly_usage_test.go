@@ -96,7 +96,7 @@ func TestDashboardHourlyUsagePerUser(t *testing.T) {
 		}
 	}
 	for _, at := range []time.Time{now.Add(-time.Minute), now} {
-		if _, err := s.addHeartbeat(heartbeat{User: "A", DeviceID: "pc", ReportedAt: at}); err != nil {
+		if _, err := s.addHistoricalHeartbeat(heartbeat{User: "A", DeviceID: "pc", ReportedAt: at}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -48,15 +48,6 @@ func (r *repository) close() error {
 	return r.db.Close()
 }
 
-func (r *repository) userQuota(user string) (int, error) {
-	var quota int
-	err := r.db.QueryRow("SELECT daily_quota_seconds FROM user_quotas WHERE user = ?", user).Scan(&quota)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return quota, err
-}
-
 func (r *repository) setUserQuota(user string, quota int) error {
 	if !validPolicyUser(user) || quota < 0 || quota > 86400 {
 		return errInvalidPolicy
@@ -87,20 +78,6 @@ func (r *repository) setUserQuota(user string, quota int) error {
 		}
 	}
 	return tx.Commit()
-}
-
-func (r *repository) userPolicyVersion(user string) (int, error) {
-	var version int
-	err := r.db.QueryRow("SELECT policy_version FROM user_policy_versions WHERE user = ?", user).Scan(&version)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return version, err
-}
-
-func (r *repository) addHeartbeat(h heartbeat) error {
-	_, _, err := r.addHeartbeatObserved(h)
-	return err
 }
 
 // Return the exact credit committed for this request, including duplicate retries.

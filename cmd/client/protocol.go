@@ -110,7 +110,8 @@ func postJSON(ctx context.Context, client *http.Client, endpoint, token string, 
 }
 
 func postHeartbeat(ctx context.Context, client *http.Client, endpoint, token string, report heartbeat) (response, error) {
-	// Usage is computed by the server. Local estimates remain in saved state only.
+	// Send measured intervals and their saved quota snapshot. Legacy activity
+	// counters stay on disk; the server computes the shared balance from usage.
 	payload := struct {
 		SessionDiagnostics *sessiondiag.Report `json:"session_diagnostics,omitempty"`
 		DeviceID           string              `json:"device_id"`

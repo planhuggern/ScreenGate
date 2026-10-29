@@ -48,10 +48,6 @@ func (p userPolicy) rules(date string) *screenpolicy.Rules {
 	return &screenpolicy.Rules{DailyQuotaSeconds: p.DailyQuotaSeconds, Paused: p.Paused, Weekdays: p.Weekdays, BonusSeconds: p.BonusSeconds, BonusDate: date}
 }
 
-func (p userPolicy) day(weekday time.Weekday) weekdayPolicy {
-	return p.rules("").Day(weekday)
-}
-
 func (p userPolicy) scheduleAllows(at time.Time) bool {
 	return p.rules("").Allows(at)
 }

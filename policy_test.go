@@ -27,8 +27,10 @@ func TestPolicyDecisions(t *testing.T) {
 		remaining, lease int
 	}{
 		{"default quota", base, 3500, now, "allow", "allowed", 100, 90},
+		{"time remaining", base, 3120, now, "allow", "allowed", 480, 90},
 		{"last seconds", base, 3592, now, "allow", "allowed", 8, 8},
 		{"exhausted", base, 3600, now, "lock", "quota", 0, 0},
+		{"over quota", base, 3700, now, "lock", "quota", 0, 0},
 		{"unlimited", userPolicy{}, 86400, now, "allow", "allowed", 0, 90},
 		{"pause unlimited", userPolicy{Paused: true}, 0, now, "lock", "paused", 0, 0},
 		{"bonus", userPolicy{DailyQuotaSeconds: 3600, BonusSeconds: 900}, 3600, now, "allow", "allowed", 900, 90},

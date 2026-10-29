@@ -16,7 +16,7 @@ func TestCalculateDailyTotal(t *testing.T) {
 		{deviceID: "pc-barn2", reportedAt: start.Add(30 * time.Second)},
 	}
 
-	total, err := calculateDailyTotal(heartbeats, day)
+	total, err := calculateDailyTotalInLocation(heartbeats, day, time.Local)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestCalculateDailyTotalSplitsAtMidnight(t *testing.T) {
 		{deviceID: "pc-barn1", reportedAt: time.Date(2026, time.September, 9, 0, 0, 10, 0, time.Local)},
 	}
 
-	total, err := calculateDailyTotal(heartbeats, "2026-09-09")
+	total, err := calculateDailyTotalInLocation(heartbeats, "2026-09-09", time.Local)
 	if err != nil {
 		t.Fatal(err)
 	}

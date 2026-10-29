@@ -13,7 +13,7 @@ func TestRecordHeartbeatUsesServiceTimeAndAppliesQuota(t *testing.T) {
 	if err := service.setUserQuota("barn1", 60); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: now.Add(-time.Minute)}); err != nil {
+	if _, err := service.addHistoricalHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: now.Add(-time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 

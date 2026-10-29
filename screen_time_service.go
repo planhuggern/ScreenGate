@@ -96,16 +96,6 @@ func (s *screenTimeService) recordHeartbeat(h heartbeat) (heartbeatResult, error
 	}, nil
 }
 
-func (s *screenTimeService) addHeartbeat(h heartbeat) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	date := h.ReportedAt.In(s.location).Format("2006-01-02")
-	if err := s.repository.addHeartbeat(h); err != nil {
-		return 0, err
-	}
-	return s.dailyTotal(h.User, date)
-}
-
 func (s *screenTimeService) dailyTotal(user, date string) (int, error) {
 	start, err := time.ParseInLocation("2006-01-02", date, s.location)
 	if err != nil {

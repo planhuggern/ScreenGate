@@ -105,6 +105,8 @@ Fra `2026.10.28.3` går kalenderreglene gjennom `local_policy.go`. `refreshPolic
 
 Fra `2026.10.28.4` gir Windows-avlesingen også eventuell feilinformasjon. `observeSession` i `session_diagnostics.go` logger feil og gjenoppretting, og oppdaterer diagnostikken som følger heartbeats. Tilstanden som går til måleren og låsevurderingen er fortsatt den samme som før: de fleste avlesingsfeil gir reserveverdien `locked`, mens feil i inaktivitetsavlesingen gir `active`. Feilopplysningene alene innfører ingen ny håndheving. Siste feil beholdes også etter gjenoppretting, slik at en kort feil under nettbrudd ikke forsvinner før neste rapport.
 
+[Steg 5](STEP_5.md) fjerner den ubrukte `blockedState` og dens isolerte tester. Klientløkken bruker fortsatt `clientState`. Eldre filfelt og kompatibilitetsbehandling er beholdt etter en egen vurdering i rapporten; ingen telle- eller låseregel endres gjennom denne oppryddingen.
+
 Innstillingskildenes prioritet og valget av testmodus/låsemodus kontrolleres også i `config_test.go`, med vanlige filer og kommandolinjeargumenter. Testene simulerer ingen Windows-låsing.
 
 Kontrollert med `go test ./cmd/client`, `go test -race ./...`, `go vet ./...` og Windows-bygg til `.artifacts/screengate-client-step3-state.exe`. Programmet er ikke installert eller startet gjennom dette arbeidet.

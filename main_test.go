@@ -136,7 +136,7 @@ func TestHeartbeatAddsToUserTotal(t *testing.T) {
 	app := testApplication(t)
 	start := app.service.now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
-		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHistoricalHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -160,7 +160,7 @@ func TestDailyTotalUsesContinuousHeartbeatIntervals(t *testing.T) {
 		time.Date(2026, time.September, 9, 12, 1, 3, 0, time.Local),
 		time.Date(2026, time.September, 9, 12, 2, 7, 0, time.Local),
 	} {
-		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHistoricalHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -176,7 +176,7 @@ func TestDailyTotalSplitsHeartbeatIntervalAtMidnight(t *testing.T) {
 		time.Date(2026, time.September, 8, 23, 59, 40, 0, time.Local),
 		time.Date(2026, time.September, 9, 0, 0, 10, 0, time.Local),
 	} {
-		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHistoricalHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -193,7 +193,7 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 	app := testApplication(t)
 	start := app.service.now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
-		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHistoricalHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -212,7 +212,7 @@ func TestDashboardShowsTodaysActivity(t *testing.T) {
 func TestDashboardShowsKnownUserWithoutTodaysHeartbeat(t *testing.T) {
 	app := testApplication(t)
 	previous := time.Date(2026, 9, 8, 12, 0, 0, 0, time.FixedZone("test", 2*3600))
-	if _, err := app.service.addHeartbeat(heartbeat{ReportedAt: previous, DeviceID: "pc-barn1", User: "barn1"}); err != nil {
+	if _, err := app.service.addHistoricalHeartbeat(heartbeat{ReportedAt: previous, DeviceID: "pc-barn1", User: "barn1"}); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
@@ -232,7 +232,7 @@ func TestOverviewDoesNotExposeActivityOrAdminControls(t *testing.T) {
 	app := testApplication(t)
 	start := app.service.now().Add(-time.Minute)
 	for _, timestamp := range []time.Time{start, start.Add(time.Minute)} {
-		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
+		if _, err := app.service.addHistoricalHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ActiveSeconds: 60, ReportedAt: timestamp}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -255,7 +255,7 @@ func TestHeartbeatLocksWhenDailyQuotaIsReached(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := app.service.now().Add(-time.Minute)
-	if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start}); err != nil {
+	if _, err := app.service.addHistoricalHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start}); err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/heartbeat", strings.NewReader(`{"device_id":"pc-barn1","user":"barn1","active_seconds":60,"reported_at":"`+start.Add(time.Minute).Format(time.RFC3339Nano)+`"}`))
@@ -286,12 +286,12 @@ func TestUserQuotaHandler(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	quota, err := app.service.repository.userQuota("barn1")
+	policy, err := app.service.userPolicy("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quota != 5400 {
-		t.Fatalf("quota = %d, want 5400", quota)
+	if policy.DailyQuotaSeconds != 5400 {
+		t.Fatalf("quota = %d, want 5400", policy.DailyQuotaSeconds)
 	}
 }
 
@@ -300,59 +300,32 @@ func TestPolicyVersionIncrementsWhenQuotaChanges(t *testing.T) {
 	if err := app.service.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
-	version, err := app.service.repository.userPolicyVersion("barn1")
+	policy, err := app.service.userPolicy("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Fatalf("version = %d, want 1", version)
+	if policy.PolicyVersion != 1 {
+		t.Fatalf("version = %d, want 1", policy.PolicyVersion)
 	}
 	if err := app.service.setUserQuota("barn1", 3600); err != nil {
 		t.Fatal(err)
 	}
-	version, err = app.service.repository.userPolicyVersion("barn1")
+	policy, err = app.service.userPolicy("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Fatalf("version = %d, want 1 after unchanged quota", version)
+	if policy.PolicyVersion != 1 {
+		t.Fatalf("version = %d, want 1 after unchanged quota", policy.PolicyVersion)
 	}
 	if err := app.service.setUserQuota("barn1", 7200); err != nil {
 		t.Fatal(err)
 	}
-	version, err = app.service.repository.userPolicyVersion("barn1")
+	policy, err = app.service.userPolicy("barn1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("version = %d, want 2", version)
-	}
-}
-
-func TestScreenTimeDecision(t *testing.T) {
-	tests := []struct {
-		name      string
-		daily     int
-		quota     int
-		action    string
-		remaining int
-	}{
-		{name: "time remaining", daily: 3120, quota: 3600, action: "allow", remaining: 480},
-		{name: "exactly at limit", daily: 3600, quota: 3600, action: "lock", remaining: 0},
-		{name: "over limit", daily: 3700, quota: 3600, action: "lock", remaining: 0},
-		{name: "unlimited", daily: 999999, quota: 0, action: "allow", remaining: 0},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			action, remaining := screenTimeDecision(test.daily, test.quota)
-			if action != test.action || remaining != test.remaining {
-				t.Fatalf("decision = %q, %d; want %q, %d", action, remaining, test.action, test.remaining)
-			}
-			if remaining < 0 {
-				t.Fatalf("remaining = %d, must not be negative", remaining)
-			}
-		})
+	if policy.PolicyVersion != 2 {
+		t.Fatalf("version = %d, want 2", policy.PolicyVersion)
 	}
 }
 
@@ -363,7 +336,7 @@ func TestHeartbeatReturnsRemainingSeconds(t *testing.T) {
 	}
 	start := app.service.now().Add(-52 * time.Minute)
 	for i := 0; i < 52; i++ {
-		if _, err := app.service.addHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start.Add(time.Duration(i) * time.Minute)}); err != nil {
+		if _, err := app.service.addHistoricalHeartbeat(heartbeat{DeviceID: "pc-barn1", User: "barn1", ReportedAt: start.Add(time.Duration(i) * time.Minute)}); err != nil {
 			t.Fatal(err)
 		}
 	}

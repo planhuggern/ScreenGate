@@ -69,21 +69,6 @@ const (
 	maxReportedActivity = 24 * time.Hour
 )
 
-func screenTimeDecision(dailyTotal, quota int) (string, int) {
-	if quota <= 0 {
-		return "allow", 0
-	}
-	remaining := quota - dailyTotal
-	if remaining <= 0 {
-		return "lock", 0
-	}
-	return "allow", remaining
-}
-
-func calculateDailyTotal(heartbeats []recordedHeartbeat, date string) (int, error) {
-	return calculateDailyTotalInLocation(heartbeats, date, time.Local)
-}
-
 func calculateDailyTotalInLocation(heartbeats []recordedHeartbeat, date string, location *time.Location) (int, error) {
 	dayStart, err := time.ParseInLocation("2006-01-02", date, location)
 	if err != nil {

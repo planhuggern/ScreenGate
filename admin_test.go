@@ -129,13 +129,13 @@ func TestPairingStartsNewUsersWithBoundedQuota(t *testing.T) {
 		if w.Code != http.StatusOK || w.Header().Get("Content-Disposition") != "attachment; filename=install.ps1" {
 			t.Fatalf("pairing status=%d", w.Code)
 		}
-		quota, err := a.service.repository.userQuota(user)
+		policy, err := a.service.userPolicy(user)
 		want := 3600
 		if user == "existing" {
 			want = 7200
 		}
-		if err != nil || quota != want {
-			t.Fatalf("%s quota=%d err=%v", user, quota, err)
+		if err != nil || policy.DailyQuotaSeconds != want {
+			t.Fatalf("%s quota=%d err=%v", user, policy.DailyQuotaSeconds, err)
 		}
 	}
 }

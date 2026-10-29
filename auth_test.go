@@ -96,9 +96,9 @@ func TestAdminRejectsMissingCSRFAndCrossOrigin(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("valid form status=%d body=%s", w.Code, w.Body)
 	}
-	quota, err := a.service.repository.userQuota("child")
-	if err != nil || quota != 5400 {
-		t.Fatalf("quota=%d err=%v", quota, err)
+	policy, err := a.service.userPolicy("child")
+	if err != nil || policy.DailyQuotaSeconds != 5400 {
+		t.Fatalf("quota=%d err=%v", policy.DailyQuotaSeconds, err)
 	}
 }
 
