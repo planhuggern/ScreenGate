@@ -6,6 +6,7 @@ COPY *.go ./
 COPY migrations ./migrations
 COPY templates ./templates
 COPY cmd/client ./cmd/client
+COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o screengate .
 RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -H=windowsgui" -o screengate-client.exe ./cmd/client
 
