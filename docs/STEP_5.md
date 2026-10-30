@@ -38,4 +38,4 @@ Eksisterende tester kontrollerer fortsatt klientløkken, signerte gamle filer, o
 
 Kontrollene er `go test ./...`, `go test -race ./...`, `go vet ./...` og egne server-/Windows-klientbygg under `.artifacts`. Ingen programprosess er startet, installert eller rullet ut som del av arbeidet.
 
-Steg 5 er gjennomført med kompatibilitetsavgrensningen ovenfor. Neste planlagte steg er praktisk kontroll på en egen Windows-standardkonto: låsing, opplåsing, nettbrudd, søvn, brukerbytte og oppdatering. Det krever en synlig testøkt og inngår ikke i denne kodeoppryddingen.
+Steg 5 er gjennomført med kompatibilitetsavgrensningen ovenfor. [Steg 6](STEP_6.md) klargjør praktisk kontroll på en egen Windows-standardkonto: låsing, opplåsing, nettbrudd, søvn, brukerbytte og oppdatering. Det krever en synlig testøkt og inngår ikke i denne kodeoppryddingen.

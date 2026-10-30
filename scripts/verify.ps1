@@ -18,7 +18,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Serverbygget feilet.' }
     & go build -ldflags '-H=windowsgui' -o .artifacts/screengate-client.exe ./cmd/client
     if ($LASTEXITCODE -ne 0) { throw 'Windows-klienten kunne ikke bygges.' }
-    foreach ($script in @('cmd/client/install.ps1', 'cmd/client/uninstall.ps1', 'cmd/client/update.ps1', 'scripts/test-updater.ps1')) {
+    foreach ($script in @('cmd/client/install.ps1', 'cmd/client/uninstall.ps1', 'cmd/client/update.ps1', 'scripts/test-updater.ps1', 'scripts/windows-test-preflight.ps1')) {
         $tokens = $null
         $parseErrors = $null
         [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $projectRoot $script), [ref]$tokens, [ref]$parseErrors) | Out-Null
