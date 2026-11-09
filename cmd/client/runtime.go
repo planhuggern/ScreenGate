@@ -11,17 +11,18 @@ import (
 // The functions and timers supplied by Windows startup. Tests supply substitutes
 // so they can run the same loop without locking a real Windows session.
 type clientRuntime struct {
-	now           func() time.Time
-	pollTicks     <-chan time.Time
-	reportTicks   <-chan time.Time
-	httpClient    *http.Client
-	save          func(clientState) error
-	sessionState  func(time.Duration) sessionObservation
-	lock          func()
-	showWarning   func(screenTimeWarning) error
-	foregroundApp func() (string, error)
-	idleTimeout   time.Duration
-	trackApps     bool
+	now               func() time.Time
+	pollTicks         <-chan time.Time
+	reportTicks       <-chan time.Time
+	httpClient        *http.Client
+	save              func(clientState) error
+	sessionState      func(time.Duration) sessionObservation
+	lock              func()
+	showWarning       func(screenTimeWarning) error
+	setExpiredWarning func(bool) error
+	foregroundApp     func() (string, error)
+	idleTimeout       time.Duration
+	trackApps         bool
 }
 
 // Only the event loop changes these fields. Network workers return results
@@ -131,6 +132,11 @@ func (c *clientLoop) report() {
 }
 
 func (c *clientLoop) stop() {
+	if c.runtime.setExpiredWarning != nil {
+		if err := c.runtime.setExpiredWarning(false); err != nil {
+			log.Printf("expired warning error: %v", err)
+		}
+	}
 	now := c.runtime.now()
 	c.state.account(c.meter.update(false, now), now)
 	c.persist()
@@ -146,7 +152,18 @@ func (c *clientLoop) persist() bool {
 }
 
 func (c *clientLoop) enforce(now time.Time) {
-	blocked := !c.state.allowed(now) && c.sessionState != "locked"
+	allowed := c.state.allowed(now)
+	// Keep the window on the user's desktop even while Windows is locked, so
+	// it is already there on unlock. Technical failures and pauses are not expiry.
+	expired := !allowed && c.state.ServerContacted && c.state.LocalBlockReason == "" &&
+		(c.state.Reason == "quota" || c.state.Reason == "schedule" ||
+			(c.state.Action == "allow" && c.state.warningRemaining(now) <= 0))
+	if c.runtime.setExpiredWarning != nil {
+		if err := c.runtime.setExpiredWarning(expired); err != nil {
+			log.Printf("expired warning error: %v", err)
+		}
+	}
+	blocked := !allowed && c.sessionState != "locked"
 	c.guard.poll(blocked, now, c.runtime.lock, func() {
 		log.Printf("test_mode=true would_lock=true action=%s reason=%s remaining_seconds=%d", c.state.Action, c.state.Reason, c.state.RemainingSeconds)
 	})

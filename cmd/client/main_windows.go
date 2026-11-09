@@ -74,6 +74,7 @@ func main() {
 	pollTicker := time.NewTicker(time.Second)
 	defer reportTicker.Stop()
 	defer pollTicker.Stop()
+	expiredWarning := expiredWarningWindow{ctx: ctx}
 	runClient(ctx, config, state, guard, clientRuntime{
 		now:          time.Now,
 		pollTicks:    pollTicker.C,
@@ -86,10 +87,11 @@ func main() {
 				log.Printf("lock workstation failed: %v", err)
 			}
 		},
-		showWarning:   showWarning,
-		foregroundApp: foregroundApp,
-		idleTimeout:   options.idleTimeout,
-		trackApps:     options.trackApps,
+		showWarning:       showWarning,
+		setExpiredWarning: expiredWarning.setVisible,
+		foregroundApp:     foregroundApp,
+		idleTimeout:       options.idleTimeout,
+		trackApps:         options.trackApps,
 	})
 }
 
