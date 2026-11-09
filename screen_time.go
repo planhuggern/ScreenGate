@@ -32,6 +32,7 @@ type activity struct {
 	BonusSeconds     int
 	RemainingSeconds int
 	Paused           bool
+	WarningOnly      bool
 	Unlimited        bool
 	Action           string
 	Reason           string

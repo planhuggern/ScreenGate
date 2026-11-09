@@ -155,6 +155,8 @@ func (d dashboard) Users() []userCard {
 
 func policyStatus(item activity) (label, tone, detail string) {
 	switch {
+	case item.WarningOnly && item.Action == "lock":
+		return "Kun advarsel", "amber", "Skjermtiden er stengt. PC-en viser en vedvarende advarsel og kan fortsatt brukes."
 	case item.Paused || item.Reason == "paused":
 		return "Satt på pause", "amber", "Skjermtilgangen er satt på pause av en foresatt."
 	case item.Reason == "schedule":

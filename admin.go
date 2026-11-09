@@ -132,6 +132,24 @@ func (a *application) userPauseHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, a.adminPath, http.StatusSeeOther)
 }
 
+func (a *application) userModeHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := adminUserForm(w, r)
+	if !ok {
+		return
+	}
+	mode := r.PostForm.Get("mode")
+	if mode != "warning" && mode != "block" {
+		http.Error(w, "invalid enforcement mode", http.StatusBadRequest)
+		return
+	}
+	if err := a.service.setUserWarningOnly(user, mode == "warning"); err != nil {
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	a.audit(user, "mode", mode)
+	http.Redirect(w, r, a.adminPath, http.StatusSeeOther)
+}
+
 func (a *application) userDeleteHandler(w http.ResponseWriter, r *http.Request) {
 	user, ok := adminUserForm(w, r)
 	if !ok {

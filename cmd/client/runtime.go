@@ -153,17 +153,18 @@ func (c *clientLoop) persist() bool {
 
 func (c *clientLoop) enforce(now time.Time) {
 	allowed := c.state.allowed(now)
+	warningOnly := c.state.CachedPolicy != nil && c.state.CachedPolicy.WarningOnly
 	// Keep the window on the user's desktop even while Windows is locked, so
-	// it is already there on unlock. Technical failures and pauses are not expiry.
+	// it is already there on unlock. Warning-only mode also reports parent pauses.
 	expired := !allowed && c.state.ServerContacted && c.state.LocalBlockReason == "" &&
-		(c.state.Reason == "quota" || c.state.Reason == "schedule" ||
+		(c.state.Reason == "quota" || c.state.Reason == "schedule" || (warningOnly && c.state.Reason == "paused") ||
 			(c.state.Action == "allow" && c.state.warningRemaining(now) <= 0))
 	if c.runtime.setExpiredWarning != nil {
 		if err := c.runtime.setExpiredWarning(expired); err != nil {
 			log.Printf("expired warning error: %v", err)
 		}
 	}
-	blocked := !allowed && c.sessionState != "locked"
+	blocked := !allowed && c.sessionState != "locked" && !warningOnly
 	c.guard.poll(blocked, now, c.runtime.lock, func() {
 		log.Printf("test_mode=true would_lock=true action=%s reason=%s remaining_seconds=%d", c.state.Action, c.state.Reason, c.state.RemainingSeconds)
 	})

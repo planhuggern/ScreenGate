@@ -16,6 +16,7 @@ type userPolicy struct {
 	User              string
 	DailyQuotaSeconds int
 	Paused            bool
+	WarningOnly       bool
 	Weekdays          []weekdayPolicy
 	BonusSeconds      int
 	PolicyVersion     int
@@ -45,7 +46,7 @@ func validateWeekdayPolicies(days []weekdayPolicy) error {
 }
 
 func (p userPolicy) rules(date string) *screenpolicy.Rules {
-	return &screenpolicy.Rules{DailyQuotaSeconds: p.DailyQuotaSeconds, Paused: p.Paused, Weekdays: p.Weekdays, BonusSeconds: p.BonusSeconds, BonusDate: date}
+	return &screenpolicy.Rules{DailyQuotaSeconds: p.DailyQuotaSeconds, Paused: p.Paused, WarningOnly: p.WarningOnly, Weekdays: p.Weekdays, BonusSeconds: p.BonusSeconds, BonusDate: date}
 }
 
 func (p userPolicy) scheduleAllows(at time.Time) bool {

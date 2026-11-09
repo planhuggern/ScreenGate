@@ -21,6 +21,7 @@ type Weekday struct {
 type Rules struct {
 	DailyQuotaSeconds int       `json:"daily_quota_seconds"`
 	Paused            bool      `json:"paused"`
+	WarningOnly       bool      `json:"warning_only"`
 	Weekdays          []Weekday `json:"weekdays"`
 	BonusSeconds      int       `json:"bonus_seconds"`
 	BonusDate         string    `json:"bonus_date"`

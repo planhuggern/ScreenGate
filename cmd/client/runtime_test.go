@@ -79,6 +79,7 @@ type loopHarness struct {
 	sessionFailure atomic.Pointer[sessiondiag.Failure]
 	locks          atomic.Int64
 	warnings       atomic.Int64
+	expiredWarning atomic.Bool
 	cancel         context.CancelFunc
 	done           chan struct{}
 }
@@ -123,8 +124,9 @@ func startTestClient(t *testing.T, state clientState, now time.Time, path string
 		sessionState: func(time.Duration) sessionObservation {
 			return sessionObservation{State: h.session.Load().(string), Failure: h.sessionFailure.Load()}
 		},
-		lock:        func() { h.locks.Add(1) },
-		showWarning: func(screenTimeWarning) error { h.warnings.Add(1); return nil },
+		lock:              func() { h.locks.Add(1) },
+		showWarning:       func(screenTimeWarning) error { h.warnings.Add(1); return nil },
+		setExpiredWarning: func(visible bool) error { h.expiredWarning.Store(visible); return nil },
 		foregroundApp: func() (string, error) {
 			return "", errors.New("unexpected app tracking in loop test")
 		},

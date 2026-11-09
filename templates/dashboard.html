@@ -68,6 +68,7 @@
           <progress class="usage-progress{{if eq .UsagePercent 100}} exhausted{{end}}" max="100" value="{{.UsagePercent}}" aria-label="{{.User}}: {{humanDuration .TotalSeconds}} brukt av {{quota .QuotaSeconds}}">{{.UsagePercent}} %</progress>
           <div class="usage-meta"><span>Dagens ramme: {{quota .QuotaSeconds}}</span><span>{{if not .Unlimited}}{{.UsagePercent}} % brukt{{else}}&nbsp;{{end}}</span></div>
           <p class="status-detail">{{.StatusDetail}}</p>
+          <p class="help">Modus: {{if .WarningOnly}}Kun advarsel{{else}}Blokker{{end}}</p>
 
           {{template "hourly-chart" .}}
 
@@ -90,6 +91,12 @@
           <details class="rule-editor">
             <summary>Grenser og ukeplan <span class="sr-only">for {{.User}}</span></summary>
             <div class="rule-content">
+              <h4>Når skjermtiden er ute</h4>
+              <form class="mode-form" method="post" action="{{$.AdminPath}}/user-mode">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}">
+                <div class="fields"><label class="field">Modus<select name="mode"><option value="block"{{if not .WarningOnly}} selected{{end}}>Blokker</option><option value="warning"{{if .WarningOnly}} selected{{end}}>Kun advarsel</option></select></label><button class="button primary" type="submit">Lagre modus</button></div>
+                <p class="help">Blokker låser Windows. Kun advarsel viser en vedvarende rød beskjed uten å låse PC-en, også ved pause og utenfor ukeplanen. Tidsmålingen fortsetter.</p>
+              </form>
               <h4>Vanlig dagsgrense</h4>
               <form method="post" action="{{$.AdminPath}}/user-quota">
                 <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="user" value="{{.User}}">

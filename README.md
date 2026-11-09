@@ -39,6 +39,10 @@ Databasen lagres i Docker-volumet `screengate-data`. Containeren kjører som en 
 
 ## Koble til en Windows-PC
 
+I foreldreoversikten kan du velge **Blokker** eller **Kun advarsel** per bruker under **Grenser og ukeplan → Når skjermtiden er ute**. Blokker er standard. Kun advarsel viser den vedvarende røde beskjeden «Tiden er ute. Slå av PC-en nå.» uten å låse Windows, også ved pause og utenfor ukeplanen. Tidsmåling og rapportering fortsetter etter at kvoten er brukt opp. Beskjeden fjernes når reglene tillater bruk igjen.
+
+Valget gjelder ved neste klientrapport og lagres for nettbrudd og omstart. Både serveren og Windows-klienten må oppdateres for å bruke denne funksjonen; eldre klienter fortsetter å låse. Installasjonens testmodus hindrer fortsatt låsing selv om foreldreoversikten er satt til Blokker. Før klienten har mottatt eller gjenopprettet regler med Kun advarsel, gjelder vanlig oppstartshåndtering.
+
 1. Skriv inn ScreenGate-brukernavnet under **Enheter og tilkobling** i foreldreoversikten.
 2. Klikk **Last ned installasjon**. Serveren lager en engangskode og laster ned `install.ps1` med serveradresse og kode ferdig utfylt.
 3. På Windows-PC-en: åpne PowerShell som administrator og kjør:

@@ -60,7 +60,7 @@ func deviceRequest(token, body string) *http.Request {
 
 func TestRoutesProtectEveryAdminEndpoint(t *testing.T) {
 	a := securedApplication(t)
-	for _, path := range []string{"", "/user-quota", "/user-policy", "/user-bonus", "/user-pause", "/devices/pair", "/devices/revoke", "/export.csv", "/downloads/install.ps1", "/downloads/screengate-client.exe"} {
+	for _, path := range []string{"", "/user-quota", "/user-policy", "/user-bonus", "/user-pause", "/user-mode", "/devices/pair", "/devices/revoke", "/export.csv", "/downloads/install.ps1", "/downloads/screengate-client.exe"} {
 		t.Run(path, func(t *testing.T) {
 			w := serve(a, httptest.NewRequest(http.MethodGet, a.adminPath+path, nil))
 			if w.Code != http.StatusUnauthorized && w.Code != http.StatusTooManyRequests {

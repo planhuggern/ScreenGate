@@ -150,6 +150,7 @@ func (s *screenTimeService) todaysActivities() ([]activity, error) {
 		item.RemainingSeconds = decision.RemainingSeconds
 		item.Unlimited = decision.Unlimited
 		item.Paused = policy.Paused
+		item.WarningOnly = policy.WarningOnly
 		item.Action, item.Reason = decision.Action, decision.Reason
 		item.NextAllowedAt = decision.NextAllowedAt
 		item.Weekdays = policy.Weekdays
@@ -186,6 +187,12 @@ func (s *screenTimeService) setUserPaused(user string, paused bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.repository.setUserPaused(user, paused)
+}
+
+func (s *screenTimeService) setUserWarningOnly(user string, warningOnly bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.repository.setUserWarningOnly(user, warningOnly)
 }
 
 func (s *screenTimeService) addBonusMinutes(user string, minutes int) error {

@@ -36,6 +36,11 @@ func (a *application) recentAudit() ([]auditEvent, error) {
 			}
 		case "schedule":
 			event.Description = "Ukeplan oppdatert"
+		case "mode":
+			event.Description = "Modus endret til Blokker"
+			if detail == "warning" {
+				event.Description = "Modus endret til Kun advarsel"
+			}
 		case "pause":
 			event.Description = "Skjermtilgang satt på pause"
 			if detail == "false" {

@@ -16,9 +16,10 @@ func (r *repository) userPolicy(user, date string) (userPolicy, error) {
 	p := userPolicy{User: user}
 	err := r.db.QueryRow(`SELECT COALESCE((SELECT daily_quota_seconds FROM user_quotas WHERE user = ?), 0),
 		COALESCE((SELECT paused FROM user_settings WHERE user = ?), 0),
+		COALESCE((SELECT warning_only FROM user_settings WHERE user = ?), 0),
 		COALESCE((SELECT seconds FROM daily_bonuses WHERE user = ? AND date = ?), 0),
-		COALESCE((SELECT policy_version FROM user_policy_versions WHERE user = ?), 0)`, user, user, user, date, user).
-		Scan(&p.DailyQuotaSeconds, &p.Paused, &p.BonusSeconds, &p.PolicyVersion)
+		COALESCE((SELECT policy_version FROM user_policy_versions WHERE user = ?), 0)`, user, user, user, user, date, user).
+		Scan(&p.DailyQuotaSeconds, &p.Paused, &p.WarningOnly, &p.BonusSeconds, &p.PolicyVersion)
 	if err != nil {
 		return p, err
 	}
@@ -109,6 +110,33 @@ func (r *repository) setUserPaused(user string, paused bool) error {
 		return tx.Commit()
 	}
 	if _, err := tx.Exec(`INSERT INTO user_settings (user, paused) VALUES (?, ?) ON CONFLICT(user) DO UPDATE SET paused = excluded.paused`, user, paused); err != nil {
+		return err
+	}
+	if err := bumpPolicyVersion(tx, user); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *repository) setUserWarningOnly(user string, warningOnly bool) error {
+	if !validPolicyUser(user) {
+		return errInvalidPolicy
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var current bool
+	err = tx.QueryRow(`SELECT warning_only FROM user_settings WHERE user = ?`, user).Scan(&current)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if current == warningOnly {
+		return tx.Commit()
+	}
+	if _, err := tx.Exec(`INSERT INTO user_settings (user, warning_only) VALUES (?, ?)
+		ON CONFLICT(user) DO UPDATE SET warning_only = excluded.warning_only`, user, warningOnly); err != nil {
 		return err
 	}
 	if err := bumpPolicyVersion(tx, user); err != nil {
