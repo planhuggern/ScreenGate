@@ -17,7 +17,7 @@ import (
 )
 
 // Bump for each client release, including fixes distributed by the updater.
-const clientVersion = "2026.10.28.4"
+const clientVersion = "2026.11.25.1"
 
 type heartbeat struct {
 	SessionDiagnostics *sessiondiag.Report `json:"session_diagnostics,omitempty"`
