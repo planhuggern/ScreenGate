@@ -1,6 +1,36 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestCountdownDisplaysEffectiveTime(t *testing.T) {
+	now := testMoment()
+	state := clientState{ServerContacted: true, QuotaSeconds: 7200, RemainingSeconds: 3661}
+	if got := state.countdownText(now, true); got != "1:01:01" {
+		t.Fatalf("quota countdown = %q", got)
+	}
+	state.ScheduledLockAt = now.Add(74 * time.Second)
+	if got := state.countdownText(now, true); got != "01:14" {
+		t.Fatalf("schedule countdown = %q", got)
+	}
+	state.QuotaSeconds = 0
+	if got := state.countdownText(now.Add(time.Second), true); got != "01:13" {
+		t.Fatalf("schedule countdown with unlimited quota = %q", got)
+	}
+	if got := state.countdownText(now, false); got != "00:00" {
+		t.Fatalf("blocked countdown = %q", got)
+	}
+	state.ScheduledLockAt = time.Time{}
+	if got := state.countdownText(now, true); got != "Ubegrenset" {
+		t.Fatalf("unlimited countdown = %q", got)
+	}
+	state.invalidate("authentication_failed")
+	if got := state.countdownText(now, false); got != "--:--" {
+		t.Fatalf("invalid countdown = %q", got)
+	}
+}
 
 func TestWarningTriggersWhenThresholdIsCrossed(t *testing.T) {
 	state := warningState{}

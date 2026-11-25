@@ -5,25 +5,41 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"syscall"
 )
 
+var messageBeep = syscall.NewLazyDLL("user32.dll").NewProc("MessageBeep")
+
+func playWarningSound() {
+	const mbIconWarning = 0x30
+	if ok, _, err := messageBeep.Call(mbIconWarning); ok == 0 {
+		log.Printf("warning sound error: %v", err)
+	}
+}
+
 func showWarning(warning screenTimeWarning) error {
+	playWarningSound()
 	command := warningCommand(context.Background(), warning, false)
 	if err := command.Start(); err != nil {
 		return err
 	}
-	go command.Wait()
+	go func() {
+		if err := command.Wait(); err != nil {
+			log.Printf("warning window error: %v", err)
+		}
+	}()
 	return nil
 }
 
 // Accessed only by the client loop. A running window is reused on every poll.
 type expiredWarningWindow struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	done   chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
+	done      chan struct{}
+	announced bool
 }
 
 func (w *expiredWarningWindow) setVisible(visible bool) error {
@@ -36,6 +52,7 @@ func (w *expiredWarningWindow) setVisible(visible bool) error {
 		}
 	}
 	if !visible {
+		w.announced = false
 		if w.cancel != nil {
 			w.cancel()
 			w.cancel, w.done = nil, nil
@@ -44,6 +61,10 @@ func (w *expiredWarningWindow) setVisible(visible bool) error {
 	}
 	if w.done != nil {
 		return nil
+	}
+	if !w.announced {
+		playWarningSound()
+		w.announced = true
 	}
 	ctx, cancel := context.WithCancel(w.ctx)
 	command := warningCommand(ctx, screenTimeWarning{
@@ -57,7 +78,9 @@ func (w *expiredWarningWindow) setVisible(visible bool) error {
 	done := make(chan struct{})
 	w.cancel, w.done = cancel, done
 	go func() {
-		command.Wait()
+		if err := command.Wait(); err != nil && ctx.Err() == nil {
+			log.Printf("expired warning window error: %v", err)
+		}
 		close(done)
 	}()
 	return nil
@@ -69,7 +92,8 @@ func warningCommand(ctx context.Context, warning screenTimeWarning, persistent b
 		// 700 * 204 = 1.5 * 560 * 170: 50 percent more area.
 		width, height = 700, 204
 	}
-	script := fmt.Sprintf(`Add-Type -AssemblyName PresentationFramework
+	script := fmt.Sprintf(`$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName PresentationFramework
 $window = New-Object Windows.Window
 $window.Width = %d
 $window.Height = %d
@@ -82,7 +106,7 @@ $window.AllowsTransparency = $true
 $window.Opacity = 0.96
 $window.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('%s')
 $window.Left = [System.Windows.SystemParameters]::WorkArea.Right - $window.Width - 20
-$window.Top = [System.Windows.SystemParameters]::WorkArea.Bottom - $window.Height - 20
+$window.Top = [System.Windows.SystemParameters]::WorkArea.Top + 54
 $text = New-Object Windows.Controls.TextBlock
 $text.Text = '%s'
 $text.Foreground = [Windows.Media.Brushes]::White
@@ -117,7 +141,12 @@ $timer.add_Tick({
 $window.add_Loaded({ $timer.Start() })`
 	}
 	script += "\n[void]$window.ShowDialog()"
+	return warningPowerShell(ctx, script)
+}
+
+func warningPowerShell(ctx context.Context, script string) *exec.Cmd {
 	command := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-Command", script)
+	command.Stderr = log.Writer()
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	return command
 }

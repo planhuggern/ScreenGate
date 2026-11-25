@@ -75,6 +75,7 @@ func main() {
 	defer reportTicker.Stop()
 	defer pollTicker.Stop()
 	expiredWarning := expiredWarningWindow{ctx: ctx}
+	countdown := countdownWindow{ctx: ctx}
 	runClient(ctx, config, state, guard, clientRuntime{
 		now:          time.Now,
 		pollTicks:    pollTicker.C,
@@ -88,6 +89,7 @@ func main() {
 			}
 		},
 		showWarning:       showWarning,
+		setCountdown:      countdown.update,
 		setExpiredWarning: expiredWarning.setVisible,
 		foregroundApp:     foregroundApp,
 		idleTimeout:       options.idleTimeout,

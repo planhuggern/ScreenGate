@@ -1,5 +1,26 @@
 package main
 
+import (
+	"fmt"
+	"time"
+)
+
+func (s clientState) countdownText(now time.Time, allowed bool) string {
+	switch {
+	case !s.ServerContacted || s.LocalBlockReason != "":
+		return "--:--"
+	case !allowed:
+		return "00:00"
+	case s.QuotaSeconds == 0 && s.ScheduledLockAt.IsZero():
+		return "Ubegrenset"
+	}
+	seconds := max(0, s.warningRemaining(now))
+	if seconds >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", seconds/3600, seconds/60%60, seconds%60)
+	}
+	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+}
+
 type screenTimeWarning struct {
 	threshold int
 	message   string

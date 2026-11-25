@@ -19,6 +19,7 @@ type clientRuntime struct {
 	sessionState      func(time.Duration) sessionObservation
 	lock              func()
 	showWarning       func(screenTimeWarning) error
+	setCountdown      func(string) error
 	setExpiredWarning func(bool) error
 	foregroundApp     func() (string, error)
 	idleTimeout       time.Duration
@@ -153,6 +154,11 @@ func (c *clientLoop) persist() bool {
 
 func (c *clientLoop) enforce(now time.Time) {
 	allowed := c.state.allowed(now)
+	if c.runtime.setCountdown != nil {
+		if err := c.runtime.setCountdown(c.state.countdownText(now, allowed)); err != nil {
+			log.Printf("countdown error: %v", err)
+		}
+	}
 	warningOnly := c.state.CachedPolicy != nil && c.state.CachedPolicy.WarningOnly
 	// Keep the window on the user's desktop even while Windows is locked, so
 	// it is already there on unlock. Warning-only mode also reports parent pauses.
