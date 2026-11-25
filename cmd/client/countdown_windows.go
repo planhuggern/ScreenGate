@@ -114,22 +114,30 @@ $window.add_SourceInitialized({
     [CountdownWindowStyle]::PassMouseThrough($handle)
 })
 
-$outline = New-Object Windows.Shapes.Path
-$outline.Fill = [Windows.Media.Brushes]::White
-$outline.Stroke = [Windows.Media.Brushes]::Black
-$outline.StrokeThickness = 2
-$outline.StrokeLineJoin = 'Round'
-$outline.HorizontalAlignment = 'Right'
-$outline.VerticalAlignment = 'Center'
-$outline.Margin = '2'
-$window.Content = $outline
+$outline = [Windows.Media.Pen]::new([Windows.Media.Brushes]::Black, 2)
+$outline.LineJoin = 'Round'
+$glyphs = New-Object Windows.Media.DrawingGroup
+$labelImage = New-Object Windows.Controls.Image
+$labelImage.Source = [Windows.Media.DrawingImage]::new($glyphs)
+$labelImage.Stretch = 'None'
+$labelImage.HorizontalAlignment = 'Right'
+$labelImage.VerticalAlignment = 'Center'
+$labelImage.Margin = '2'
+$window.Content = $labelImage
 
-$font = [Windows.Media.Typeface]::new('Segoe UI Semibold')
+$font = [Windows.Media.Typeface]::new([Windows.Media.FontFamily]::new('Segoe UI'),
+    [Windows.FontStyles]::Normal, [Windows.FontWeights]::Bold, [Windows.FontStretches]::Normal)
 $culture = [System.Globalization.CultureInfo]::InvariantCulture
 function Set-CountdownText([string]$label) {
     $dpi = [Windows.Media.VisualTreeHelper]::GetDpi($window).PixelsPerDip
-    $text = [Windows.Media.FormattedText]::new($label, $culture, 'LeftToRight', $font, 20, $outline.Fill, $dpi)
-    $outline.Data = $text.BuildGeometry([Windows.Point]::new(0, 0))
+    $white = [Windows.Media.Brushes]::White
+    $text = [Windows.Media.FormattedText]::new($label, $culture, 'LeftToRight', $font, 24, $white, $dpi)
+    $geometry = $text.BuildGeometry([Windows.Point]::new(0, 0))
+    $drawing = $glyphs.Open()
+    # Paint the white glyph over the inner half of the outline.
+    $drawing.DrawGeometry($null, $outline, $geometry)
+    $drawing.DrawGeometry($white, $null, $geometry)
+    $drawing.Close()
 }
 
 $reader = [System.IO.StreamReader]::new([Console]::OpenStandardInput())
